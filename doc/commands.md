@@ -125,6 +125,7 @@ Behavior:
 - Without `-A`, checks both `armv7l` and `aarch64` target triples and installs missing ones via `rustup target add`.
 - With `-A`, checks and installs only the selected architecture target triple.
 - Also ensures sysroot cache exists for each selected architecture (runs `setup` defaults when missing).
+- If `rpmbuild` is missing, prints a non-failing warning with distro-specific install hint (needed only for `cargo tizen rpm`).
 
 Examples:
 

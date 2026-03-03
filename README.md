@@ -157,6 +157,8 @@ Install missing Rust targets and prepare missing sysroots automatically:
 cargo tizen fix
 ```
 
+If `rpmbuild` is missing, `fix` prints a distro-specific install hint (warning only; required for RPM packaging).
+
 Install missing target for one architecture:
 
 ```bash

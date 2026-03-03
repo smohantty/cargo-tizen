@@ -57,6 +57,10 @@ cargo tizen build -A aarch64 --release
 cargo tizen build -A armv7l -- --features my_feature
 ```
 
+On success, `build` prints:
+- artifact directory path (`<target-dir>/<rust-target>/<debug|release>`)
+- primary binary path when package name can be determined
+
 Architecture auto-selection when `-A` is omitted (`setup`, `build`, `rpm`, `tpk`, `run`):
 1. `[default].arch`
 2. exactly one configured `[arch.*]` entry
@@ -109,7 +113,8 @@ Notes:
 
 - `cargo tizen doctor` checks both `armv7l` and `aarch64`.
 - `cargo tizen doctor -A <arch>` checks one architecture.
-- For rootstrap provider, doctor lists installed SDK target options (`--platform-version/--profile`) per arch, marks current `[selected]`, and shows `[cached]`/`[not-cached]`.
+- For rootstrap provider, doctor reports installed SDK coverage grouped by `--platform-version/--profile` with supported architecture summary.
+- Default doctor output is concise; use `cargo tizen -v doctor` for detailed per-check path output.
 - Missing `rpmbuild` is reported as a warning (it is required only for `cargo tizen rpm`).
 
 ## `fix`
@@ -125,7 +130,7 @@ Behavior:
 - Without `-A`, checks both `armv7l` and `aarch64` target triples and installs missing ones via `rustup target add`.
 - With `-A`, checks and installs only the selected architecture target triple.
 - Also ensures sysroot cache exists for each selected architecture (runs `setup` defaults when missing).
-- If `rpmbuild` is missing, prints a non-failing warning with distro-specific install hint (needed only for `cargo tizen rpm`).
+- If `rpmbuild` is missing, prints a non-failing warning with distro-specific install hint (needed only for `cargo tizen rpm`); install command is highlighted in terminal output.
 
 Examples:
 

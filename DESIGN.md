@@ -189,9 +189,10 @@ Checks:
 - Tizen SDK detection (`TIZEN_SDK`, `sdb`, extension/CLI default locations).
 - Rust targets installed (both `armv7l` and `aarch64` when `-A` is omitted).
 - Rootstrap availability for selected profile/version/arch.
-- Installed SDK rootstrap targets listed per arch (`--platform-version/--profile`) with selected and cache-ready status.
+- Installed SDK rootstrap coverage grouped by platform/profile with supported architecture summary.
 - Sysroot cache availability and validity.
 - Config consistency.
+- Default output is concise; `-v` enables detailed per-check path output.
 
 ## 4.8 `fix`
 
@@ -206,6 +207,7 @@ Behavior:
 - Without `-A`, checks both supported architectures and runs `rustup target add <triple>` for any missing target.
 - With `-A`, applies the same flow for one selected architecture.
 - Ensures sysroot cache is ready for selected architectures (runs `setup` defaults when missing).
+- If `rpmbuild` is missing, prints warning + distro-specific install guidance (no automatic host package installation).
 
 ## 4.9 `clean`
 

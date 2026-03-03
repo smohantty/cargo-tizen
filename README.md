@@ -147,7 +147,8 @@ cargo tizen doctor -A aarch64
 Notes:
 - `cargo tizen doctor` (without `-A`) checks both `armv7l` and `aarch64`.
 - `cargo tizen doctor -A <arch>` checks a specific architecture.
-- doctor prints installed SDK `--platform-version/--profile` options per arch, marks `[selected]` target used by default, and shows `[cached]` vs `[not-cached]`.
+- doctor prints installed SDK rootstrap coverage grouped by `--platform-version/--profile` with supported architecture summary.
+- default output is concise; use `cargo tizen -v doctor` for detailed per-check paths.
 
 ### 2.1 Fix missing Rust targets
 
@@ -204,6 +205,10 @@ Release build:
 ```bash
 cargo tizen build -A aarch64 --release
 ```
+
+After successful build, cargo-tizen prints:
+- final artifact directory (`.../<rust-target>/<debug|release>`)
+- primary binary path when package name can be detected from `Cargo.toml`
 
 ### 5. Generate RPM
 

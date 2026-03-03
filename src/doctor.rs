@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Result, bail};
@@ -66,7 +67,12 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         ctx.info("checking all supported architectures: armv7l, aarch64");
     }
 
-    for arch in arches {
+    if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
+        report_rootstrap_coverage(ctx, &arches, &mut failures, &mut warnings);
+    }
+
+    for arch in &arches {
+        let arch = *arch;
         let toolchain = resolve_toolchain(ctx, arch);
         let linker = toolchain.linker;
 
@@ -112,81 +118,16 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
             let sdk_root_override = ctx.config.sdk_root();
             let (profile, platform_version) =
-                sysroot::resolve_profile_platform_for_arch(ctx, arch)?;
-
-            match rootstrap::installed_rootstrap_options(sdk_root_override.as_deref(), arch) {
-                Ok(options) if options.is_empty() => warnings.push(format!(
-                    "no installed rootstrap targets discovered in SDK for arch {}",
-                    arch
-                )),
-                Ok(options) => {
-                    ctx.info(format!(
-                        "[ok] installed rootstrap targets for arch {}:",
-                        arch
-                    ));
-                    for option in options {
-                        let option_req = SetupRequest {
-                            arch,
-                            profile: option.profile.clone(),
-                            platform_version: option.platform_version.clone(),
-                            sdk_root_override: sdk_root_override.clone(),
-                        };
-                        let rootstrap_info = match rootstrap::resolve_rootstrap(&option_req) {
-                            Ok(resolved_option) => {
-                                let mut details = format!(
-                                    " rootstrap={} ({})",
-                                    resolved_option.id,
-                                    resolved_option.root_path.display()
-                                );
-                                if resolved_option.used_fallback {
-                                    details.push_str(" [fallback]");
-                                }
-                                details
-                            }
-                            Err(err) => {
-                                failures.push(format!(
-                                    "rootstrap resolve failed for arch {} profile={} platform-version={}: {}",
-                                    arch, option.profile, option.platform_version, err
-                                ));
-                                " rootstrap=<unresolved>".to_string()
-                            }
-                        };
-                        let is_selected = option.profile == profile
-                            && option.platform_version == platform_version;
-                        match sysroot::cache_ready_for_target(
-                            ctx,
-                            arch,
-                            &option.profile,
-                            &option.platform_version,
-                        ) {
-                            Ok(cache_ready) => {
-                                let selected_tag = if is_selected { " [selected]" } else { "" };
-                                let cache_tag = if cache_ready {
-                                    " [cached]"
-                                } else {
-                                    " [not-cached]"
-                                };
-                                ctx.info(format!(
-                                    "  - --platform-version {} --profile {}{}{}{}",
-                                    option.platform_version,
-                                    option.profile,
-                                    rootstrap_info,
-                                    selected_tag,
-                                    cache_tag
-                                ));
-                            }
-                            Err(err) => failures.push(format!(
-                                "failed to inspect cache status for arch {} profile={} platform-version={}: {}",
-                                arch, option.profile, option.platform_version, err
-                            )),
-                        }
+                match sysroot::resolve_profile_platform_for_arch(ctx, arch) {
+                    Ok(value) => value,
+                    Err(err) => {
+                        failures.push(format!(
+                            "failed to resolve selected profile/platform for arch {}: {}",
+                            arch, err
+                        ));
+                        continue;
                     }
-                }
-                Err(err) => failures.push(format!(
-                    "failed to discover installed rootstrap targets for arch {}: {}",
-                    arch, err
-                )),
-            }
+                };
 
             let req = SetupRequest {
                 arch,
@@ -244,6 +185,175 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         eprintln!("[error] {failure}");
     }
     bail!("doctor found {} issue(s)", failures.len())
+}
+
+#[derive(Debug, Clone)]
+struct CoverageArchEntry {
+    rootstrap_id: String,
+    rootstrap_path: String,
+    used_fallback: bool,
+    selected: bool,
+    cached: bool,
+}
+
+fn report_rootstrap_coverage(
+    ctx: &AppContext,
+    arches: &[Arch],
+    failures: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
+    let sdk_root_override = ctx.config.sdk_root();
+    let mut grouped: BTreeMap<(String, String), BTreeMap<Arch, CoverageArchEntry>> =
+        BTreeMap::new();
+
+    for arch in arches.iter().copied() {
+        let selected = match sysroot::resolve_profile_platform_for_arch(ctx, arch) {
+            Ok(value) => Some(value),
+            Err(err) => {
+                failures.push(format!(
+                    "failed to resolve selected profile/platform for arch {}: {}",
+                    arch, err
+                ));
+                None
+            }
+        };
+
+        let options =
+            match rootstrap::installed_rootstrap_options(sdk_root_override.as_deref(), arch) {
+                Ok(options) => options,
+                Err(err) => {
+                    failures.push(format!(
+                        "failed to discover installed rootstrap targets for arch {}: {}",
+                        arch, err
+                    ));
+                    continue;
+                }
+            };
+
+        if options.is_empty() {
+            warnings.push(format!(
+                "no installed rootstrap targets discovered in SDK for arch {}",
+                arch
+            ));
+            continue;
+        }
+
+        for option in options {
+            let req = SetupRequest {
+                arch,
+                profile: option.profile.clone(),
+                platform_version: option.platform_version.clone(),
+                sdk_root_override: sdk_root_override.clone(),
+            };
+            let resolved = match rootstrap::resolve_rootstrap(&req) {
+                Ok(resolved) => resolved,
+                Err(err) => {
+                    failures.push(format!(
+                        "rootstrap resolve failed for arch {} profile={} platform-version={}: {}",
+                        arch, option.profile, option.platform_version, err
+                    ));
+                    continue;
+                }
+            };
+
+            let cached = match sysroot::cache_ready_for_target(
+                ctx,
+                arch,
+                &option.profile,
+                &option.platform_version,
+            ) {
+                Ok(value) => value,
+                Err(err) => {
+                    failures.push(format!(
+                        "failed to inspect cache status for arch {} profile={} platform-version={}: {}",
+                        arch, option.profile, option.platform_version, err
+                    ));
+                    false
+                }
+            };
+
+            let selected_for_arch = selected
+                .as_ref()
+                .map(|(profile, platform_version)| {
+                    option.profile == *profile && option.platform_version == *platform_version
+                })
+                .unwrap_or(false);
+
+            grouped
+                .entry((option.platform_version.clone(), option.profile.clone()))
+                .or_default()
+                .insert(
+                    arch,
+                    CoverageArchEntry {
+                        rootstrap_id: resolved.id,
+                        rootstrap_path: resolved.root_path.display().to_string(),
+                        used_fallback: resolved.used_fallback,
+                        selected: selected_for_arch,
+                        cached,
+                    },
+                );
+        }
+    }
+
+    if grouped.is_empty() {
+        return;
+    }
+
+    ctx.info("[ok] installed rootstrap coverage by platform/profile:");
+    let mut keys = grouped.keys().cloned().collect::<Vec<_>>();
+    keys.sort_by(|a, b| {
+        version_sort_key(&b.0)
+            .cmp(&version_sort_key(&a.0))
+            .then_with(|| a.1.cmp(&b.1))
+    });
+
+    for key in keys {
+        ctx.info(format!(
+            "  - --platform-version {} --profile {}",
+            key.0, key.1
+        ));
+        if let Some(arch_entries) = grouped.get(&key) {
+            for arch in arches.iter().copied() {
+                if let Some(entry) = arch_entries.get(&arch) {
+                    let fallback_tag = if entry.used_fallback {
+                        " [fallback]"
+                    } else {
+                        ""
+                    };
+                    let selected_tag = if entry.selected { " [selected]" } else { "" };
+                    let cache_tag = if entry.cached {
+                        " [cached]"
+                    } else {
+                        " [not-cached]"
+                    };
+                    ctx.info(format!(
+                        "      {}: {} ({}){}{}{}",
+                        arch,
+                        entry.rootstrap_id,
+                        entry.rootstrap_path,
+                        fallback_tag,
+                        selected_tag,
+                        cache_tag
+                    ));
+                } else {
+                    ctx.info(format!("      {}: [not-installed]", arch));
+                }
+            }
+        }
+    }
+}
+
+fn version_sort_key(version: &str) -> (u64, u64) {
+    let mut parts = version.split('.');
+    let major = parts
+        .next()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    let minor = parts
+        .next()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    (major, minor)
 }
 
 fn binary_exists(value: &str) -> bool {

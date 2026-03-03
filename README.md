@@ -212,6 +212,10 @@ After successful build, cargo-tizen prints:
 
 ### 5. Generate RPM
 
+`cargo tizen rpm` packages one Cargo profile per run:
+- default: package `debug`
+- `--cargo-release`: package `release`
+
 Build + package in release profile:
 
 ```bash
@@ -223,6 +227,11 @@ Use a custom RPM release field:
 ```bash
 cargo tizen rpm -A aarch64 --cargo-release --release 3
 ```
+
+Notes:
+- `--cargo-release` selects Cargo build profile (`release` vs default `debug`).
+- `--release <n>` sets RPM package `Release:` field (revision), not Cargo profile.
+- To produce both debug and release RPMs, run `cargo tizen rpm` twice (with and without `--cargo-release`).
 
 Use existing build outputs:
 

@@ -85,17 +85,8 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         fs::remove_dir_all(&stage_root)
             .with_context(|| format!("failed to clean staging root {}", stage_root.display()))?;
     }
-    fs::create_dir_all(stage_root.join("bin"))
+    fs::create_dir_all(&stage_root)
         .with_context(|| format!("failed to create staging root {}", stage_root.display()))?;
-
-    let staged_binary = stage_root.join("bin").join(&package_name);
-    fs::copy(&source_binary, &staged_binary).with_context(|| {
-        format!(
-            "failed to stage binary {} -> {}",
-            source_binary.display(),
-            staged_binary.display()
-        )
-    })?;
 
     let staged_manifest = stage_root.join("tizen-manifest.xml");
     let manifest_path = stage_manifest(
@@ -121,34 +112,87 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
 
     let tizen_cli = locate_tizen_cli(ctx)?;
     ctx.debug(format!("tizen cli resolved to {}", tizen_cli.display()));
-    ctx.debug(format!("tpk staging root: {}", stage_root.display()));
+    let (resolved_profile, platform_version) = match sysroot::resolve_profile_platform_for_arch(
+        ctx, arch,
+    ) {
+        Ok(resolved) => resolved,
+        Err(err) => {
+            ctx.debug(format!(
+                "profile/platform auto-detection failed for tpk project: {}; falling back to config defaults",
+                err
+            ));
+            (ctx.config.profile(), ctx.config.platform_version())
+        }
+    };
 
-    let mut cmd = Command::new(&tizen_cli);
-    cmd.arg("package").arg("-t").arg("tpk");
-    if let Some(sign) = &args.sign {
-        cmd.arg("-s").arg(sign);
+    let template_profile = tizen_template_profile_name(&platform_version);
+    let temp_project_root = ctx
+        .workspace_root
+        .join("target")
+        .join("tizen")
+        .join(arch.as_str())
+        .join(profile_dir)
+        .join("tpk")
+        .join("project");
+    if temp_project_root.exists() {
+        fs::remove_dir_all(&temp_project_root).with_context(|| {
+            format!(
+                "failed to clean temporary tpk project root {}",
+                temp_project_root.display()
+            )
+        })?;
     }
-    if let Some(reference) = &args.reference {
-        cmd.arg("-r").arg(reference);
-    }
-    if let Some(extra_dir) = &args.extra_dir {
-        cmd.arg("-e").arg(extra_dir);
-    }
-    cmd.arg("-o").arg(&output_dir);
-    cmd.arg("--").arg(&stage_root);
-    tool_env::tizen_cli_env(ctx).apply(&mut cmd);
+    fs::create_dir_all(&temp_project_root).with_context(|| {
+        format!(
+            "failed to create temporary tpk project root {}",
+            temp_project_root.display()
+        )
+    })?;
+
+    let temp_project_name = format!("ctpk_{}", sanitize_identifier_segment(&package_name));
+    let temp_project_dir = create_temp_native_project(
+        ctx,
+        &tizen_cli,
+        &temp_project_root,
+        &template_profile,
+        &temp_project_name,
+    )?;
+    let temp_manifest = temp_project_dir.join("tizen-manifest.xml");
+    fs::copy(&staged_manifest, &temp_manifest).with_context(|| {
+        format!(
+            "failed to stage manifest {} -> {}",
+            staged_manifest.display(),
+            temp_manifest.display()
+        )
+    })?;
+
+    let build_config = if args.cargo_release {
+        "Release"
+    } else {
+        "Debug"
+    };
+    let build_output_dir =
+        build_temp_native_project(ctx, &tizen_cli, &temp_project_dir, arch, build_config)?;
+
+    let exec_name = detect_exec_name_from_manifest(&staged_manifest)?.unwrap_or(package_name);
+    let packaged_binary = build_output_dir.join(&exec_name);
+    fs::copy(&source_binary, &packaged_binary).with_context(|| {
+        format!(
+            "failed to inject Rust binary {} -> {}",
+            source_binary.display(),
+            packaged_binary.display()
+        )
+    })?;
+    ensure_executable_mode(&packaged_binary)?;
 
     ctx.info(format!(
-        "running tizen package -t tpk for {} (output: {})",
+        "running tizen package -t tpk for {} profile={} platform-version={} (output: {})",
         arch,
+        resolved_profile,
+        platform_version,
         output_dir.display()
     ));
-    let status = cmd
-        .status()
-        .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
-    if !status.success() {
-        bail!("tizen package command failed with status: {status}");
-    }
+    run_tizen_package(ctx, &tizen_cli, args, &output_dir, &build_output_dir)?;
 
     let tpks = collect_tpks(&output_dir)?;
     if tpks.is_empty() {
@@ -329,6 +373,149 @@ fn normalize_manifest_version(raw: &str) -> String {
     format!("{}.{}.{}", parts[0], parts[1], parts[2])
 }
 
+fn create_temp_native_project(
+    ctx: &AppContext,
+    tizen_cli: &Path,
+    project_root: &Path,
+    template_profile: &str,
+    project_name: &str,
+) -> Result<PathBuf> {
+    let mut cmd = Command::new(tizen_cli);
+    cmd.arg("create")
+        .arg("native-project")
+        .arg("-p")
+        .arg(template_profile)
+        .arg("-t")
+        .arg("ServiceApp")
+        .arg("-n")
+        .arg(project_name)
+        .arg("--")
+        .arg(project_root);
+    tool_env::tizen_cli_env(ctx).apply(&mut cmd);
+
+    let status = cmd
+        .status()
+        .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
+    if !status.success() {
+        bail!("tizen create native-project failed with status: {status}");
+    }
+
+    let project_dir = project_root.join(project_name);
+    if !project_dir.is_dir() {
+        bail!(
+            "tizen create native-project reported success but project directory is missing: {}",
+            project_dir.display()
+        );
+    }
+    Ok(project_dir)
+}
+
+fn build_temp_native_project(
+    ctx: &AppContext,
+    tizen_cli: &Path,
+    project_dir: &Path,
+    arch: crate::arch::Arch,
+    build_config: &str,
+) -> Result<PathBuf> {
+    let mut cmd = Command::new(tizen_cli);
+    cmd.arg("build-native")
+        .arg("-a")
+        .arg(ctx.config.tizen_cli_arch_for(arch))
+        .arg("-C")
+        .arg(build_config)
+        .arg("--")
+        .arg(project_dir);
+    tool_env::tizen_cli_env(ctx).apply(&mut cmd);
+
+    let status = cmd
+        .status()
+        .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
+    if !status.success() {
+        bail!("tizen build-native failed with status: {status}");
+    }
+
+    let output_dir = project_dir.join(build_config);
+    if !output_dir.is_dir() {
+        bail!(
+            "tizen build-native reported success but output directory is missing: {}",
+            output_dir.display()
+        );
+    }
+    Ok(output_dir)
+}
+
+fn run_tizen_package(
+    ctx: &AppContext,
+    tizen_cli: &Path,
+    args: &TpkArgs,
+    output_dir: &Path,
+    build_output_dir: &Path,
+) -> Result<()> {
+    let mut cmd = Command::new(tizen_cli);
+    cmd.arg("package").arg("-t").arg("tpk");
+    if let Some(sign) = &args.sign {
+        cmd.arg("-s").arg(sign);
+    }
+    if let Some(reference) = &args.reference {
+        cmd.arg("-r").arg(reference);
+    }
+    if let Some(extra_dir) = &args.extra_dir {
+        cmd.arg("-e").arg(extra_dir);
+    }
+    cmd.arg("-o").arg(output_dir);
+    cmd.arg("--").arg(build_output_dir);
+    tool_env::tizen_cli_env(ctx).apply(&mut cmd);
+
+    let status = cmd
+        .status()
+        .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
+    if !status.success() {
+        bail!("tizen package command failed with status: {status}");
+    }
+
+    Ok(())
+}
+
+fn detect_exec_name_from_manifest(path: &Path) -> Result<Option<String>> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("failed to read manifest {}", path.display()))?;
+    for tag in [
+        "ui-application",
+        "service-application",
+        "watch-application",
+        "widget-application",
+    ] {
+        if let Some(exec) = extract_attr_from_tag(&raw, tag, "exec") {
+            return Ok(Some(exec));
+        }
+    }
+    Ok(None)
+}
+
+fn ensure_executable_mode(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut perms = fs::metadata(path)
+            .with_context(|| format!("failed to read metadata {}", path.display()))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms)
+            .with_context(|| format!("failed to set executable mode on {}", path.display()))?;
+    }
+
+    Ok(())
+}
+
+fn tizen_template_profile_name(platform_version: &str) -> String {
+    if platform_version.starts_with("tizen-") {
+        platform_version.to_string()
+    } else {
+        format!("tizen-{platform_version}")
+    }
+}
+
 pub fn detect_app_id_from_manifest(path: &Path) -> Result<String> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("failed to read manifest {}", path.display()))?;
@@ -465,7 +652,7 @@ fn extract_attr(segment: &str, attr: &str) -> Option<String> {
 mod tests {
     use super::{
         ManifestPackage, extract_attr, extract_attr_from_tag, normalize_manifest_version,
-        render_default_manifest, sanitize_identifier_segment,
+        render_default_manifest, sanitize_identifier_segment, tizen_template_profile_name,
     };
 
     #[test]
@@ -518,5 +705,11 @@ mod tests {
         assert_eq!(normalize_manifest_version("1.2"), "1.2.0");
         assert_eq!(normalize_manifest_version("1.2.3-beta.1"), "1.2.3");
         assert_eq!(normalize_manifest_version("abc"), "1.0.0");
+    }
+
+    #[test]
+    fn template_profile_name_is_normalized() {
+        assert_eq!(tizen_template_profile_name("10.0"), "tizen-10.0");
+        assert_eq!(tizen_template_profile_name("tizen-9.0"), "tizen-9.0");
     }
 }

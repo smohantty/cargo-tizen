@@ -125,6 +125,32 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
                         arch
                     ));
                     for option in options {
+                        let option_req = SetupRequest {
+                            arch,
+                            profile: option.profile.clone(),
+                            platform_version: option.platform_version.clone(),
+                            sdk_root_override: sdk_root_override.clone(),
+                        };
+                        let rootstrap_info = match rootstrap::resolve_rootstrap(&option_req) {
+                            Ok(resolved_option) => {
+                                let mut details = format!(
+                                    " rootstrap={} ({})",
+                                    resolved_option.id,
+                                    resolved_option.root_path.display()
+                                );
+                                if resolved_option.used_fallback {
+                                    details.push_str(" [fallback]");
+                                }
+                                details
+                            }
+                            Err(err) => {
+                                failures.push(format!(
+                                    "rootstrap resolve failed for arch {} profile={} platform-version={}: {}",
+                                    arch, option.profile, option.platform_version, err
+                                ));
+                                " rootstrap=<unresolved>".to_string()
+                            }
+                        };
                         let is_selected = option.profile == profile
                             && option.platform_version == platform_version;
                         match sysroot::cache_ready_for_target(
@@ -141,8 +167,12 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
                                     " [not-cached]"
                                 };
                                 ctx.info(format!(
-                                    "  - --platform-version {} --profile {}{}{}",
-                                    option.platform_version, option.profile, selected_tag, cache_tag
+                                    "  - --platform-version {} --profile {}{}{}{}",
+                                    option.platform_version,
+                                    option.profile,
+                                    rootstrap_info,
+                                    selected_tag,
+                                    cache_tag
                                 ));
                             }
                             Err(err) => failures.push(format!(
@@ -167,7 +197,7 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             match rootstrap::resolve_rootstrap(&req) {
                 Ok(resolved) => {
                     let mut status = format!(
-                        "[ok] rootstrap found: {} ({})",
+                        "[ok] selected rootstrap resolved: {} ({})",
                         resolved.id,
                         resolved.root_path.display()
                     );

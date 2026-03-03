@@ -65,6 +65,11 @@ Install globally so `cargo tizen ...` works in any Rust project:
 cargo install --path .
 ```
 
+What this does:
+- builds `cargo-tizen` and installs it to Cargo's bin directory
+- install location is `$CARGO_HOME/bin` (or `~/.cargo/bin` when `CARGO_HOME` is not set)
+- `cargo tizen ...` works because Cargo discovers `cargo-tizen` from `PATH`
+
 After install, verify:
 
 ```bash

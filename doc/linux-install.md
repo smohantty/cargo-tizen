@@ -65,6 +65,12 @@ cargo test
 cargo install --path .
 ```
 
+Install location notes:
+
+- `cargo install --path .` installs `cargo-tizen` into `$CARGO_HOME/bin`.
+- If `CARGO_HOME` is not set, this is typically `~/.cargo/bin`.
+- Cargo finds subcommands by executable name on `PATH`, so `cargo-tizen` enables `cargo tizen`.
+
 Verify:
 
 ```sh

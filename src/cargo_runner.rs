@@ -7,6 +7,7 @@ use crate::arch::Arch;
 use crate::arch_detect;
 use crate::cli::BuildArgs;
 use crate::context::AppContext;
+use crate::rust_target;
 use crate::sysroot;
 use crate::tool_env::{
     ToolEnv, ensure_rust_target_installed, resolve_toolchain, verify_c_compiler_sanity,
@@ -15,7 +16,8 @@ use crate::tool_env::{
 pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     let arch = arch_detect::resolve_arch(ctx, args.arch, "build")?;
     let resolved = sysroot::ensure_for_build(ctx, arch)?;
-    let rust_target = ctx.config.rust_target_for(arch);
+    let rust_target =
+        rust_target::resolve_with_sysroot_hint(ctx, arch, Some(&resolved.sysroot_dir))?;
     let toolchain = resolve_toolchain(ctx, arch);
     let target_dir = resolve_target_dir(&ctx.workspace_root, arch, args.target_dir.as_deref());
 

@@ -5,6 +5,7 @@ use anyhow::{Result, bail};
 use crate::arch::Arch;
 use crate::cli::DoctorArgs;
 use crate::context::AppContext;
+use crate::rust_target;
 use crate::sdk::TizenSdk;
 use crate::sysroot;
 use crate::sysroot::provider::SetupRequest;
@@ -86,7 +87,16 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             failures.push(message);
         }
 
-        let rust_target = ctx.config.rust_target_for(arch);
+        let rust_target = match rust_target::resolve_for_arch(ctx, arch) {
+            Ok(target) => target,
+            Err(err) => {
+                failures.push(format!(
+                    "failed to resolve rust target for arch {}: {}",
+                    arch, err
+                ));
+                continue;
+            }
+        };
         match ensure_rust_target_installed(&rust_target) {
             Ok(true) => ctx.info(format!("[ok] rust target installed: {rust_target}")),
             Ok(false) => failures.push(format!(

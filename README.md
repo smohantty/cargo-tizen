@@ -41,7 +41,7 @@ When upstream design/commands around rootstrap resolution, Tizen SDK integration
 
 Required tools:
 - Rust toolchain (`cargo`, `rustc`, `rustup`)
-- Rust target stdlib for each Tizen arch (`rustup target add armv7-unknown-linux-gnueabihf`, `rustup target add aarch64-unknown-linux-gnu`)
+- Rust target stdlib for each Tizen arch (`armv7l` uses `armv7-unknown-linux-gnueabi` or `armv7-unknown-linux-gnueabihf` based on rootstrap ABI; `aarch64` uses `aarch64-unknown-linux-gnu`)
 - `rpmbuild` (usually from `rpm-build`, required only for `cargo tizen rpm`)
 - Tizen SDK with Native CLI and matching rootstrap packages for your target/profile/version
 
@@ -122,7 +122,7 @@ provider = "rootstrap"
 root = "/path/to/tizen-studio"
 
 [arch.armv7l]
-rust_target = "armv7-unknown-linux-gnueabihf"
+rust_target = "armv7-unknown-linux-gnueabi"
 linker = "arm-linux-gnueabi-gcc"
 tizen_cli_arch = "arm"
 tizen_build_arch = "armel"
@@ -273,8 +273,11 @@ cargo tizen run -A armv7l -d <device-id> --tpk ./build/app.tpk --app-id org.exam
 
 | CLI arch | Rust target | Tizen CLI arch | Tizen build arch | RPM arch |
 |---|---|---|---|---|
-| `armv7l` | `armv7-unknown-linux-gnueabihf` | `arm` | `armel` | `armv7l` |
+| `armv7l` | `armv7-unknown-linux-gnueabi` | `arm` | `armel` | `armv7l` |
 | `aarch64` | `aarch64-unknown-linux-gnu` | `aarch64` | `aarch64` | `aarch64` |
+
+Notes:
+- For `armv7l` with `provider=rootstrap` and no explicit `[arch.armv7l].rust_target`, cargo-tizen infers soft/hard float Rust target from selected rootstrap headers.
 
 ## Output Layout
 

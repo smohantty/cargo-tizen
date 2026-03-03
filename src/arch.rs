@@ -28,7 +28,7 @@ impl Arch {
     pub fn map(self) -> ArchMap {
         match self {
             Arch::Armv7l => ArchMap {
-                rust_target: "armv7-unknown-linux-gnueabihf",
+                rust_target: "armv7-unknown-linux-gnueabi",
                 tizen_cli_arch: "arm",
                 tizen_build_arch: "armel",
                 rpm_build_arch: "armv7l",
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn mapping_is_stable() {
-        assert_eq!(Arch::Armv7l.rust_target(), "armv7-unknown-linux-gnueabihf");
+        assert_eq!(Arch::Armv7l.rust_target(), "armv7-unknown-linux-gnueabi");
         assert_eq!(Arch::Aarch64.rust_target(), "aarch64-unknown-linux-gnu");
         assert_eq!(Arch::Armv7l.tizen_cli_arch(), "arm");
         assert_eq!(Arch::Armv7l.tizen_build_arch(), "armel");

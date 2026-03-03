@@ -6,6 +6,7 @@ use crate::arch::Arch;
 use crate::cli::FixArgs;
 use crate::cli::SetupArgs;
 use crate::context::AppContext;
+use crate::rust_target;
 use crate::sysroot;
 use crate::tool_env::ensure_rust_target_installed;
 
@@ -23,7 +24,16 @@ pub fn run_fix(ctx: &AppContext, args: &FixArgs) -> Result<()> {
     let mut missing_targets = Vec::new();
     let mut failures = Vec::new();
     for arch in arches {
-        let rust_target = ctx.config.rust_target_for(arch);
+        let rust_target = match rust_target::resolve_for_arch(ctx, arch) {
+            Ok(target) => target,
+            Err(err) => {
+                failures.push(format!(
+                    "failed to resolve rust target for {}: {}",
+                    arch, err
+                ));
+                continue;
+            }
+        };
         if ensure_rust_target_installed(&rust_target)? {
             ctx.info(format!(
                 "[ok] rust target already installed for {}: {}",

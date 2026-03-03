@@ -10,6 +10,7 @@ mod doctor;
 mod fix;
 mod rpm;
 mod run_cmd;
+mod rust_target;
 mod sdk;
 mod sysroot;
 mod tool_env;

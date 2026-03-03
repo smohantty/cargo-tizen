@@ -64,12 +64,13 @@ Not implemented yet:
 
 | `-A/--arch` | Rust target | Tizen CLI arch | Tizen build arch | RPM build arch | Typical linker (default) |
 |---|---|---|---|---|---|
-| `armv7l` | `armv7-unknown-linux-gnueabihf` | `arm` | `armel` | `armv7l` | `arm-linux-gnueabi-gcc` |
+| `armv7l` | `armv7-unknown-linux-gnueabi` | `arm` | `armel` | `armv7l` | `arm-linux-gnueabi-gcc` |
 | `aarch64` | `aarch64-unknown-linux-gnu` | `aarch64` | `aarch64` | `aarch64` | `aarch64-linux-gnu-gcc` |
 
 Notes:
 - Linker/toolchain names vary by environment; defaults are configurable.
-- Target mapping defaults are fixed in code and can be overridden through config.
+- `armv7l` Rust target can be inferred from selected rootstrap ABI (`stubs-soft.h` vs `stubs-hard.h`) when no explicit override is provided.
+- Any mapping can be overridden through config.
 
 
 ## 4. CLI Specification
@@ -261,7 +262,7 @@ platform_version = "10.0"
 provider = "rootstrap"
 
 [arch.armv7l]
-rust_target = "armv7-unknown-linux-gnueabihf"
+rust_target = "armv7-unknown-linux-gnueabi"
 linker = "/opt/tizen/toolchains/armv7l/bin/arm-linux-gnueabi-gcc"
 tizen_cli_arch = "arm"
 tizen_build_arch = "armel"

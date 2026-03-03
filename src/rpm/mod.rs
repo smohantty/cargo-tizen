@@ -4,6 +4,7 @@ use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, RpmArgs};
 use crate::context::AppContext;
+use crate::rust_target;
 
 mod rpmbuild;
 mod spec;
@@ -11,7 +12,7 @@ mod stage;
 
 pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
     let arch = arch_detect::resolve_arch(ctx, args.arch, "rpm")?;
-    let rust_target = ctx.config.rust_target_for(arch);
+    let rust_target = rust_target::resolve_for_arch(ctx, arch)?;
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
 
     if !args.no_build {

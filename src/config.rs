@@ -155,10 +155,14 @@ impl Config {
     }
 
     pub fn rust_target_for(&self, arch: Arch) -> String {
+        self.rust_target_override_for(arch)
+            .unwrap_or_else(|| arch.rust_target().to_string())
+    }
+
+    pub fn rust_target_override_for(&self, arch: Arch) -> Option<String> {
         self.arch
             .get(arch.as_str())
             .and_then(|entry| entry.rust_target.clone())
-            .unwrap_or_else(|| arch.rust_target().to_string())
     }
 
     pub fn tizen_cli_arch_for(&self, arch: Arch) -> String {

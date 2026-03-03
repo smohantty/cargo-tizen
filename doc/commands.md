@@ -67,6 +67,7 @@ Rust target note:
 - Tizen SDK sysroot gives native headers/libs for linking.
 - Rust `std` for the target triple still comes from `rustup target add <triple>`.
 - Both are needed for cross-builds.
+- For `armv7l` with `provider=rootstrap` and no explicit `[arch.armv7l].rust_target`, cargo-tizen infers soft/hard float target from selected rootstrap headers.
 - When sysroot has `libssl`/`libcrypto` but no `openssl.pc`, `cargo-tizen` sets `OPENSSL_*` fallback env automatically.
 
 ## `rpm`

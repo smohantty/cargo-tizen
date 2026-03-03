@@ -1,7 +1,9 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use serde::Deserialize;
 
 use crate::arch::Arch;
 use crate::arch_detect;
@@ -76,6 +78,17 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
         bail!("cargo build failed with status: {status}");
     }
 
+    let profile_dir = if args.release { "release" } else { "debug" };
+    let artifact_dir = target_dir.join(&rust_target).join(profile_dir);
+    ctx.info(format!("[ok] build artifacts: {}", artifact_dir.display()));
+
+    if let Some(package_name) = package_name_from_manifest(&ctx.workspace_root.join("Cargo.toml")) {
+        let primary_binary = artifact_dir.join(&package_name);
+        if primary_binary.is_file() {
+            ctx.info(format!("[ok] primary binary: {}", primary_binary.display()));
+        }
+    }
+
     Ok(())
 }
 
@@ -91,4 +104,20 @@ pub fn resolve_target_dir(workspace_root: &Path, arch: Arch, explicit: Option<&P
     explicit
         .map(Path::to_path_buf)
         .unwrap_or_else(|| default_target_dir(workspace_root, arch))
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoManifest {
+    package: Option<CargoPackage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CargoPackage {
+    name: String,
+}
+
+fn package_name_from_manifest(path: &Path) -> Option<String> {
+    let raw = fs::read_to_string(path).ok()?;
+    let parsed: CargoManifest = toml::from_str(&raw).ok()?;
+    parsed.package.map(|pkg| pkg.name)
 }

@@ -1,0 +1,212 @@
+# cargo-tizen
+
+`cargo-tizen` is a Cargo subcommand for:
+- provisioning and caching per-arch Tizen sysroots
+- cross-building Rust binaries for Tizen architectures
+- generating RPM packages from Rust build outputs
+- generating TPK packages via Tizen CLI from Rust build outputs
+
+## Status
+
+Implemented:
+- Commands: `setup`, `build`, `rpm`, `tpk`, `doctor`, `clean`
+- Sysroot cache with metadata and locking
+- Rootstrap-based provider with profile fallback policy
+- SDK auto-discovery
+- RPM generation via `rpmbuild`
+
+Known gap:
+- `repo` provider is not implemented yet (only `rootstrap` is functional)
+
+## Docs
+
+- Linux installation: [doc/linux-install.md](doc/linux-install.md)
+- Tizen SDK setup: [doc/install-tizen-sdk.md](doc/install-tizen-sdk.md)
+- Command reference: [doc/commands.md](doc/commands.md)
+- Packaging model vs `flutter-tizen`: [doc/packaging-model.md](doc/packaging-model.md)
+
+## Prerequisites
+
+Required tools:
+- Rust toolchain (`cargo`, `rustc`, `rustup`)
+- `rpmbuild` (usually from `rpm-build`)
+- Tizen SDK with Native CLI and matching rootstrap packages for your target/profile/version
+
+SDK detection order:
+1. `setup --sdk-root <path>`
+2. `[sdk].root` in `.cargo-tizen.toml`
+3. `TIZEN_SDK` environment variable
+4. parent of detected `sdb`
+5. default locations (`~/.tizen-extension-platform/...`, `~/tizen-studio`)
+
+## Build This Project
+
+From this repository:
+
+```bash
+cargo build
+cargo test
+```
+
+Release build:
+
+```bash
+cargo build --release
+```
+
+## Install This Tool
+
+Install globally so `cargo tizen ...` works in any Rust project:
+
+```bash
+cargo install --path .
+```
+
+After install, verify:
+
+```bash
+cargo tizen --help
+```
+
+## Use In Any Rust Project
+
+### 1. Add project config
+
+Create `.cargo-tizen.toml` in the target Rust project:
+
+```toml
+[default]
+profile = "mobile"
+platform_version = "9.0"
+provider = "rootstrap"
+
+[sdk]
+root = "/path/to/tizen-studio"
+
+[arch.armv7l]
+rust_target = "armv7-unknown-linux-gnueabihf"
+linker = "arm-linux-gnueabi-gcc"
+tizen_cli_arch = "arm"
+tizen_build_arch = "armel"
+rpm_build_arch = "armv7l"
+
+[arch.aarch64]
+rust_target = "aarch64-unknown-linux-gnu"
+linker = "aarch64-linux-gnu-gcc"
+tizen_cli_arch = "aarch64"
+tizen_build_arch = "aarch64"
+rpm_build_arch = "aarch64"
+```
+
+### 2. Validate toolchain and SDK
+
+```bash
+cargo tizen doctor -A armv7l
+cargo tizen doctor -A aarch64
+```
+
+### 3. Prepare sysroot cache
+
+```bash
+cargo tizen setup -A armv7l
+cargo tizen setup -A aarch64
+```
+
+Force refresh:
+
+```bash
+cargo tizen setup -A armv7l --force
+```
+
+### 4. Cross-build Rust binaries
+
+Debug build:
+
+```bash
+cargo tizen build -A armv7l
+```
+
+Release build:
+
+```bash
+cargo tizen build -A aarch64 --release
+```
+
+### 5. Generate RPM
+
+Build + package in release profile:
+
+```bash
+cargo tizen rpm -A armv7l --cargo-release
+```
+
+Use a custom RPM release field:
+
+```bash
+cargo tizen rpm -A aarch64 --cargo-release --release 3
+```
+
+Use existing build outputs:
+
+```bash
+cargo tizen rpm -A armv7l --no-build
+```
+
+### 6. Generate TPK
+
+Build + package as TPK (requires `tizen-manifest.xml`):
+
+```bash
+cargo tizen tpk -A armv7l --cargo-release --manifest ./tizen/tizen-manifest.xml
+```
+
+Use existing build outputs:
+
+```bash
+cargo tizen tpk -A aarch64 --no-build --manifest ./tizen-manifest.xml
+```
+
+Sign with a Tizen security profile:
+
+```bash
+cargo tizen tpk -A armv7l --cargo-release --manifest ./tizen-manifest.xml --sign my_profile
+```
+
+## Architecture Mapping Defaults
+
+| CLI arch | Rust target | Tizen CLI arch | Tizen build arch | RPM arch |
+|---|---|---|---|---|
+| `armv7l` | `armv7-unknown-linux-gnueabihf` | `arm` | `armel` | `armv7l` |
+| `aarch64` | `aarch64-unknown-linux-gnu` | `aarch64` | `aarch64` | `aarch64` |
+
+## Output Layout
+
+Cargo build output:
+- `target/tizen/<arch>/cargo/<rust-target>/<debug|release>/`
+
+Staging and RPM output:
+- `target/tizen/<arch>/<debug|release>/stage/`
+- `target/tizen/<arch>/<debug|release>/rpmbuild/`
+
+## Command Reference
+
+- `cargo tizen setup -A <armv7l|aarch64> [--profile] [--platform-version] [--provider] [--sdk-root] [--force]`
+- `cargo tizen build -A <armv7l|aarch64> [--release] [--target-dir <path>] [-- <cargo build args>]`
+- `cargo tizen rpm -A <armv7l|aarch64> [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]`
+- `cargo tizen tpk -A <armv7l|aarch64> [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]`
+- `cargo tizen doctor [-A <armv7l|aarch64>]`
+- `cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]`
+
+## Troubleshooting
+
+If `doctor` says SDK is missing:
+- install Tizen SDK / VS Code Extension for Tizen
+- set `TIZEN_SDK` or `[sdk].root`
+- rerun `cargo tizen doctor -A <arch>`
+
+If `setup` fails with rootstrap missing:
+- install matching Native App Development/rootstrap packages for your profile and platform version
+- rerun `cargo tizen setup -A <arch>`
+
+If `rpmbuild` is missing:
+- install your distro package providing `rpmbuild` (commonly `rpm-build`)

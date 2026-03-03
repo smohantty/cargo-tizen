@@ -19,16 +19,26 @@ use crate::tool_env::{
 pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
     let mut failures = Vec::new();
     let mut warnings = Vec::new();
+    let detailed = ctx.verbose;
 
+    let mut missing_tools = Vec::new();
     for tool in ["cargo", "rustc", "rustup"] {
         if which::which(tool).is_ok() {
-            ctx.info(format!("[ok] tool found: {tool}"));
+            if detailed {
+                ctx.info(format!("[ok] tool found: {tool}"));
+            }
         } else {
+            missing_tools.push(tool.to_string());
             failures.push(format!("missing tool: {tool}"));
         }
     }
+    if !detailed && missing_tools.is_empty() {
+        ctx.info("[ok] required host tools found: cargo, rustc, rustup");
+    }
     if which::which("rpmbuild").is_ok() {
-        ctx.info("[ok] tool found: rpmbuild");
+        if detailed {
+            ctx.info("[ok] tool found: rpmbuild");
+        }
     } else {
         warnings.push(
             "missing tool: rpmbuild (install package `rpm-build`) [required only for `cargo tizen rpm`]"
@@ -39,15 +49,25 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
     let sdk = TizenSdk::locate(ctx.config.sdk_root().as_deref());
     match &sdk {
         Some(sdk) => {
-            ctx.info(format!(
-                "[ok] Tizen SDK found: {} (flavor: {})",
-                sdk.root().display(),
-                sdk.flavor()
-            ));
+            if detailed {
+                ctx.info(format!(
+                    "[ok] Tizen SDK found: {} (flavor: {})",
+                    sdk.root().display(),
+                    sdk.flavor()
+                ));
+            } else {
+                ctx.info(format!(
+                    "[ok] Tizen SDK found: {} ({})",
+                    sdk.root().display(),
+                    sdk.flavor()
+                ));
+            }
 
             let tizen_cli = sdk.tizen_cli();
             if tizen_cli.is_file() {
-                ctx.info(format!("[ok] tizen CLI found: {}", tizen_cli.display()));
+                if detailed {
+                    ctx.info(format!("[ok] tizen CLI found: {}", tizen_cli.display()));
+                }
             } else {
                 warnings.push(format!(
                     "tizen CLI not found at expected path: {}",
@@ -76,10 +96,14 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         let arch = *arch;
         let toolchain = resolve_toolchain(ctx, arch);
         let linker = toolchain.linker;
+        let mut arch_ready = true;
 
         if binary_exists(&linker) {
-            ctx.info(format!("[ok] linker found: {linker}"));
+            if detailed {
+                ctx.info(format!("[ok] linker found: {linker}"));
+            }
         } else {
+            arch_ready = false;
             let mut message = format!("linker not found for arch {}: {}", arch, linker);
             if let Some(sdk) = &sdk {
                 let default_linker = ctx.config.linker_for(arch);
@@ -105,17 +129,28 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             }
         };
         match ensure_rust_target_installed(&rust_target) {
-            Ok(true) => ctx.info(format!("[ok] rust target installed: {rust_target}")),
-            Ok(false) => failures.push(format!(
-                "rust target not installed: {} (try: rustup target add {})",
-                rust_target, rust_target
-            )),
-            Err(err) => failures.push(format!(
-                "failed to query rust targets for {}: {}",
-                rust_target, err
-            )),
+            Ok(true) => {
+                if detailed {
+                    ctx.info(format!("[ok] rust target installed: {rust_target}"));
+                }
+            }
+            Ok(false) => {
+                arch_ready = false;
+                failures.push(format!(
+                    "rust target not installed: {} (try: rustup target add {})",
+                    rust_target, rust_target
+                ));
+            }
+            Err(err) => {
+                arch_ready = false;
+                failures.push(format!(
+                    "failed to query rust targets for {}: {}",
+                    rust_target, err
+                ));
+            }
         }
 
+        let mut selected_rootstrap = None::<String>;
         if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
             let sdk_root_override = ctx.config.sdk_root();
             let (profile, platform_version) =
@@ -138,38 +173,61 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             };
             match rootstrap::resolve_rootstrap(&req) {
                 Ok(resolved) => {
-                    let mut status = format!(
-                        "[ok] selected rootstrap resolved: {} ({})",
-                        resolved.id,
-                        resolved.root_path.display()
-                    );
-                    if resolved.used_fallback {
-                        status.push_str(" [fallback]");
+                    selected_rootstrap = Some(resolved.id.clone());
+                    if detailed {
+                        let mut status = format!(
+                            "[ok] selected rootstrap resolved: {} ({})",
+                            resolved.id,
+                            resolved.root_path.display()
+                        );
+                        if resolved.used_fallback {
+                            status.push_str(" [fallback]");
+                        }
+                        ctx.info(status);
                     }
-                    ctx.info(status);
                 }
-                Err(err) => failures.push(format!("rootstrap check failed: {err}")),
+                Err(err) => {
+                    arch_ready = false;
+                    failures.push(format!("rootstrap check failed: {err}"));
+                }
             }
         }
 
         match sysroot::resolve_for_build(ctx, arch) {
             Ok(resolved) => {
-                ctx.info(format!("[ok] sysroot cache ready for arch {}", arch));
                 if let Err(err) =
                     verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir))
                 {
+                    arch_ready = false;
                     failures.push(format!(
                         "c compiler sanity check failed for arch {}: {}",
                         arch, err
                     ));
                 } else {
-                    ctx.info(format!(
-                        "[ok] c compiler sanity check passed: {}",
-                        toolchain.cc
-                    ));
+                    if detailed {
+                        ctx.info(format!("[ok] sysroot cache ready for arch {}", arch));
+                        ctx.info(format!(
+                            "[ok] c compiler sanity check passed: {}",
+                            toolchain.cc
+                        ));
+                    }
                 }
             }
-            Err(err) => failures.push(format!("sysroot not ready for arch {}: {}", arch, err)),
+            Err(err) => {
+                arch_ready = false;
+                failures.push(format!("sysroot not ready for arch {}: {}", arch, err));
+            }
+        }
+
+        if !detailed && arch_ready {
+            let rootstrap_note = selected_rootstrap
+                .as_deref()
+                .map(|id| format!(", rootstrap={id}"))
+                .unwrap_or_default();
+            ctx.info(format!(
+                "[ok] {} ready: rust-target={}{}",
+                arch, rust_target, rootstrap_note
+            ));
         }
     }
 

@@ -241,11 +241,13 @@ cargo tizen rpm -A armv7l --no-build
 
 ### 6. Generate TPK
 
-Build + package as TPK (requires `tizen-manifest.xml`):
+Build + package as TPK:
 
 ```bash
 cargo tizen tpk -A armv7l --cargo-release --manifest ./tizen/tizen-manifest.xml
 ```
+
+If no manifest is provided and no default file is found at `./tizen-manifest.xml` or `./tizen/tizen-manifest.xml`, cargo-tizen auto-generates a minimal manifest in the staging directory for that run.
 
 Use existing build outputs:
 

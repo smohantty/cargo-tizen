@@ -42,7 +42,7 @@ TPK flow:
 
 1. Resolve rootstrap and prepare sysroot cache.
 2. Cross-build Rust binary with Cargo.
-3. Stage binary + `tizen-manifest.xml`.
+3. Stage binary + `tizen-manifest.xml` (explicit/default manifest when present, otherwise auto-generate minimal manifest in staging).
 4. Invoke `tizen package -t tpk`.
 
 Run flow:

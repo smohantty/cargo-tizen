@@ -229,6 +229,7 @@ Purpose:
 
 Behavior:
 - Stages binary and `tizen-manifest.xml`.
+- Uses explicit/default `tizen-manifest.xml` when present; otherwise auto-generates a minimal manifest in staging for the current run.
 - Invokes `tizen package -t tpk`.
 - Emits generated `.tpk` path(s).
 
@@ -446,6 +447,7 @@ Given `cargo tizen tpk -A aarch64`:
    - `--manifest` if provided
    - `<workspace>/tizen-manifest.xml`
    - `<workspace>/tizen/tizen-manifest.xml`
+   - otherwise generate default manifest in staging
 5. Invoke:
    - `tizen package -t tpk -o <output_dir> -- <staging_root>`
    - optional `-s <sign_profile>`

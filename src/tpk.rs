@@ -11,6 +11,7 @@ use crate::cli::{BuildArgs, TpkArgs};
 use crate::context::AppContext;
 use crate::rust_target;
 use crate::sdk::TizenSdk;
+use crate::sysroot;
 use crate::tool_env;
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,7 @@ struct CargoManifest {
 #[derive(Debug, Deserialize)]
 struct ManifestPackage {
     name: String,
+    version: String,
 }
 
 pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
@@ -58,7 +60,8 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
     } else {
         "debug"
     };
-    let package_name = manifest_package_name(&ctx.workspace_root.join("Cargo.toml"))?;
+    let package = manifest_package(&ctx.workspace_root.join("Cargo.toml"))?;
+    let package_name = package.name.clone();
     let source_binary = build_target_dir
         .join(&rust_target)
         .join(profile_dir)
@@ -94,15 +97,15 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         )
     })?;
 
-    let manifest_path = resolve_manifest_path(&ctx.workspace_root, args.manifest.as_deref())?;
     let staged_manifest = stage_root.join("tizen-manifest.xml");
-    fs::copy(&manifest_path, &staged_manifest).with_context(|| {
-        format!(
-            "failed to stage manifest {} -> {}",
-            manifest_path.display(),
-            staged_manifest.display()
-        )
-    })?;
+    let manifest_path = stage_manifest(
+        ctx,
+        &ctx.workspace_root,
+        args.manifest.as_deref(),
+        &staged_manifest,
+        arch,
+        &package,
+    )?;
 
     let output_dir = args.output.clone().unwrap_or_else(|| {
         ctx.workspace_root
@@ -162,12 +165,12 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
     })
 }
 
-fn manifest_package_name(path: &Path) -> Result<String> {
+fn manifest_package(path: &Path) -> Result<ManifestPackage> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("failed to read Cargo manifest {}", path.display()))?;
     let parsed: CargoManifest = toml::from_str(&raw)
         .with_context(|| format!("failed to parse Cargo manifest {}", path.display()))?;
-    Ok(parsed.package.name)
+    Ok(parsed.package)
 }
 
 pub fn resolve_manifest_path(workspace_root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
@@ -196,6 +199,134 @@ pub fn resolve_manifest_path(workspace_root: &Path, explicit: Option<&Path>) -> 
             .join("tizen-manifest.xml")
             .display()
     )
+}
+
+fn stage_manifest(
+    ctx: &AppContext,
+    workspace_root: &Path,
+    explicit: Option<&Path>,
+    staged_manifest: &Path,
+    arch: crate::arch::Arch,
+    package: &ManifestPackage,
+) -> Result<PathBuf> {
+    if explicit.is_some() {
+        let manifest_path = resolve_manifest_path(workspace_root, explicit)?;
+        fs::copy(&manifest_path, staged_manifest).with_context(|| {
+            format!(
+                "failed to stage manifest {} -> {}",
+                manifest_path.display(),
+                staged_manifest.display()
+            )
+        })?;
+        return Ok(manifest_path);
+    }
+
+    if let Ok(manifest_path) = resolve_manifest_path(workspace_root, None) {
+        fs::copy(&manifest_path, staged_manifest).with_context(|| {
+            format!(
+                "failed to stage manifest {} -> {}",
+                manifest_path.display(),
+                staged_manifest.display()
+            )
+        })?;
+        return Ok(manifest_path);
+    }
+
+    let (profile, platform_version) = match sysroot::resolve_profile_platform_for_arch(ctx, arch) {
+        Ok(resolved) => resolved,
+        Err(err) => {
+            ctx.debug(format!(
+                "manifest profile/platform auto-detection failed: {}; falling back to config defaults",
+                err
+            ));
+            (ctx.config.profile(), ctx.config.platform_version())
+        }
+    };
+    let rendered = render_default_manifest(package, &profile, &platform_version);
+    fs::write(staged_manifest, rendered).with_context(|| {
+        format!(
+            "failed to write generated manifest {}",
+            staged_manifest.display()
+        )
+    })?;
+    ctx.info(format!(
+        "no tizen-manifest.xml found; generated default manifest at {}",
+        staged_manifest.display()
+    ));
+    Ok(staged_manifest.to_path_buf())
+}
+
+fn render_default_manifest(
+    package: &ManifestPackage,
+    profile: &str,
+    platform_version: &str,
+) -> String {
+    let id_segment = sanitize_identifier_segment(&package.name);
+    let package_id = format!("org.rust.{id_segment}");
+    let manifest_version = normalize_manifest_version(&package.version);
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns="http://tizen.org/ns/packages" package="{package_id}" version="{manifest_version}" api-version="{platform_version}">
+    <profile name="{profile}" />
+    <ui-application appid="{appid}" exec="{exec}" type="capp" multiple="false" taskmanage="true" nodisplay="false" launch_mode="single">
+        <label>{label}</label>
+    </ui-application>
+</manifest>
+"#,
+        package_id = package_id,
+        manifest_version = manifest_version,
+        platform_version = platform_version,
+        label = package.name,
+        profile = profile,
+        appid = package_id,
+        exec = package.name,
+    )
+}
+
+fn sanitize_identifier_segment(raw: &str) -> String {
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push('_');
+        }
+    }
+
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    let out = out.trim_matches('_');
+
+    if out.is_empty() {
+        return "app".to_string();
+    }
+
+    if out.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        return format!("app_{out}");
+    }
+
+    out.to_string()
+}
+
+fn normalize_manifest_version(raw: &str) -> String {
+    let core = raw.split(['-', '+']).next().unwrap_or("").trim();
+    let mut parts: Vec<u64> = core
+        .split('.')
+        .filter(|part| !part.is_empty())
+        .filter_map(|part| part.parse::<u64>().ok())
+        .collect();
+
+    if parts.is_empty() {
+        return "1.0.0".to_string();
+    }
+
+    while parts.len() < 3 {
+        parts.push(0);
+    }
+    parts.truncate(3);
+
+    format!("{}.{}.{}", parts[0], parts[1], parts[2])
 }
 
 pub fn detect_app_id_from_manifest(path: &Path) -> Result<String> {
@@ -332,7 +463,10 @@ fn extract_attr(segment: &str, attr: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_attr, extract_attr_from_tag};
+    use super::{
+        ManifestPackage, extract_attr, extract_attr_from_tag, normalize_manifest_version,
+        render_default_manifest, sanitize_identifier_segment,
+    };
 
     #[test]
     fn xml_attr_parser_handles_spaces_and_quotes() {
@@ -355,5 +489,34 @@ mod tests {
             extract_attr_from_tag(manifest, "ui-application", "appid").as_deref(),
             Some("org.example.app")
         );
+    }
+
+    #[test]
+    fn default_manifest_is_rendered_with_normalized_fields() {
+        let package = ManifestPackage {
+            name: "my-app".to_string(),
+            version: "0.9.2-beta.1".to_string(),
+        };
+        let manifest = render_default_manifest(&package, "tizen", "10.0");
+        assert!(manifest.contains(r#"package="org.rust.my_app""#));
+        assert!(manifest.contains(r#"appid="org.rust.my_app""#));
+        assert!(manifest.contains(r#"version="0.9.2""#));
+        assert!(manifest.contains(r#"api-version="10.0""#));
+        assert!(manifest.contains(r#"profile name="tizen""#));
+    }
+
+    #[test]
+    fn identifier_segment_sanitization_is_stable() {
+        assert_eq!(sanitize_identifier_segment("my-app"), "my_app");
+        assert_eq!(sanitize_identifier_segment("99-app"), "app_99_app");
+        assert_eq!(sanitize_identifier_segment("__"), "app");
+    }
+
+    #[test]
+    fn manifest_version_normalization_is_stable() {
+        assert_eq!(normalize_manifest_version("1"), "1.0.0");
+        assert_eq!(normalize_manifest_version("1.2"), "1.2.0");
+        assert_eq!(normalize_manifest_version("1.2.3-beta.1"), "1.2.3");
+        assert_eq!(normalize_manifest_version("abc"), "1.0.0");
     }
 }

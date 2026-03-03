@@ -149,10 +149,11 @@ cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--manifest <path>] [--o
 
 Notes:
 
-- Requires `tizen-manifest.xml`.
-- If `--manifest` is omitted, lookup order is:
+- Uses `tizen-manifest.xml` from:
+  - `--manifest <path>` when provided
   - `<workspace>/tizen-manifest.xml`
   - `<workspace>/tizen/tizen-manifest.xml`
+- If no manifest is found, auto-generates a minimal manifest in staging for the current run.
 - Staging expects the built binary path `<target-dir>/<rust-target>/<profile>/<package-name>`.
 
 Examples:

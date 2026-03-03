@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::{Result, bail};
@@ -187,15 +188,6 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
     bail!("doctor found {} issue(s)", failures.len())
 }
 
-#[derive(Debug, Clone)]
-struct CoverageArchEntry {
-    rootstrap_id: String,
-    rootstrap_path: String,
-    used_fallback: bool,
-    selected: bool,
-    cached: bool,
-}
-
 fn report_rootstrap_coverage(
     ctx: &AppContext,
     arches: &[Arch],
@@ -203,21 +195,9 @@ fn report_rootstrap_coverage(
     warnings: &mut Vec<String>,
 ) {
     let sdk_root_override = ctx.config.sdk_root();
-    let mut grouped: BTreeMap<(String, String), BTreeMap<Arch, CoverageArchEntry>> =
-        BTreeMap::new();
+    let mut grouped: BTreeMap<(String, String), BTreeSet<Arch>> = BTreeMap::new();
 
     for arch in arches.iter().copied() {
-        let selected = match sysroot::resolve_profile_platform_for_arch(ctx, arch) {
-            Ok(value) => Some(value),
-            Err(err) => {
-                failures.push(format!(
-                    "failed to resolve selected profile/platform for arch {}: {}",
-                    arch, err
-                ));
-                None
-            }
-        };
-
         let options =
             match rootstrap::installed_rootstrap_options(sdk_root_override.as_deref(), arch) {
                 Ok(options) => options,
@@ -239,59 +219,10 @@ fn report_rootstrap_coverage(
         }
 
         for option in options {
-            let req = SetupRequest {
-                arch,
-                profile: option.profile.clone(),
-                platform_version: option.platform_version.clone(),
-                sdk_root_override: sdk_root_override.clone(),
-            };
-            let resolved = match rootstrap::resolve_rootstrap(&req) {
-                Ok(resolved) => resolved,
-                Err(err) => {
-                    failures.push(format!(
-                        "rootstrap resolve failed for arch {} profile={} platform-version={}: {}",
-                        arch, option.profile, option.platform_version, err
-                    ));
-                    continue;
-                }
-            };
-
-            let cached = match sysroot::cache_ready_for_target(
-                ctx,
-                arch,
-                &option.profile,
-                &option.platform_version,
-            ) {
-                Ok(value) => value,
-                Err(err) => {
-                    failures.push(format!(
-                        "failed to inspect cache status for arch {} profile={} platform-version={}: {}",
-                        arch, option.profile, option.platform_version, err
-                    ));
-                    false
-                }
-            };
-
-            let selected_for_arch = selected
-                .as_ref()
-                .map(|(profile, platform_version)| {
-                    option.profile == *profile && option.platform_version == *platform_version
-                })
-                .unwrap_or(false);
-
             grouped
                 .entry((option.platform_version.clone(), option.profile.clone()))
                 .or_default()
-                .insert(
-                    arch,
-                    CoverageArchEntry {
-                        rootstrap_id: resolved.id,
-                        rootstrap_path: resolved.root_path.display().to_string(),
-                        used_fallback: resolved.used_fallback,
-                        selected: selected_for_arch,
-                        cached,
-                    },
-                );
+                .insert(arch);
         }
     }
 
@@ -300,6 +231,7 @@ fn report_rootstrap_coverage(
     }
 
     ctx.info("[ok] installed rootstrap coverage by platform/profile:");
+    let use_color = color_output_enabled();
     let mut keys = grouped.keys().cloned().collect::<Vec<_>>();
     keys.sort_by(|a, b| {
         version_sort_key(&b.0)
@@ -308,37 +240,25 @@ fn report_rootstrap_coverage(
     });
 
     for key in keys {
-        ctx.info(format!(
-            "  - --platform-version {} --profile {}",
-            key.0, key.1
-        ));
         if let Some(arch_entries) = grouped.get(&key) {
-            for arch in arches.iter().copied() {
-                if let Some(entry) = arch_entries.get(&arch) {
-                    let fallback_tag = if entry.used_fallback {
-                        " [fallback]"
-                    } else {
-                        ""
-                    };
-                    let selected_tag = if entry.selected { " [selected]" } else { "" };
-                    let cache_tag = if entry.cached {
-                        " [cached]"
-                    } else {
-                        " [not-cached]"
-                    };
-                    ctx.info(format!(
-                        "      {}: {} ({}){}{}{}",
-                        arch,
-                        entry.rootstrap_id,
-                        entry.rootstrap_path,
-                        fallback_tag,
-                        selected_tag,
-                        cache_tag
-                    ));
-                } else {
-                    ctx.info(format!("      {}: [not-installed]", arch));
-                }
-            }
+            let supported_arches = arches
+                .iter()
+                .copied()
+                .filter(|arch| arch_entries.contains(arch))
+                .map(|arch| arch.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let platform_label = colorize(
+                use_color,
+                "1;36",
+                &format!("--platform-version {} --profile {}", key.0, key.1),
+            );
+            let arch_label = colorize(
+                use_color,
+                "1;32",
+                &format!("supported arch: {}", supported_arches),
+            );
+            ctx.info(format!("  ✓ {} ({})", platform_label, arch_label));
         }
     }
 }
@@ -354,6 +274,17 @@ fn version_sort_key(version: &str) -> (u64, u64) {
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
     (major, minor)
+}
+
+fn color_output_enabled() -> bool {
+    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn colorize(enabled: bool, ansi_code: &str, value: &str) -> String {
+    if enabled {
+        return format!("\x1b[{}m{}\x1b[0m", ansi_code, value);
+    }
+    value.to_string()
 }
 
 fn binary_exists(value: &str) -> bool {

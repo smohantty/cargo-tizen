@@ -180,26 +180,6 @@ pub fn resolve_for_build(ctx: &AppContext, arch: Arch) -> Result<ResolvedSysroot
     })
 }
 
-pub fn cache_ready_for_target(
-    ctx: &AppContext,
-    arch: Arch,
-    profile: &str,
-    platform_version: &str,
-) -> Result<bool> {
-    let provider = ctx.config.default_provider();
-    let request = SetupRequest {
-        arch,
-        profile: profile.to_string(),
-        platform_version: platform_version.to_string(),
-        sdk_root_override: ctx.config.sdk_root(),
-    };
-    let fingerprint = provider_for(provider).fingerprint(&request)?;
-    let cache_root = ctx.config.cache_root();
-    let key = CacheKey::new(&request, provider, &fingerprint);
-    let entry_dir = cache::entry_path(&cache_root, &key);
-    cache::is_ready(&entry_dir)
-}
-
 pub fn resolve_profile_platform_for_arch(ctx: &AppContext, arch: Arch) -> Result<(String, String)> {
     let provider = ctx.config.default_provider();
     let resolved = resolve_profile_platform(ctx, provider, arch, None, None, None)?;

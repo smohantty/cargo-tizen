@@ -1,5 +1,4 @@
 use std::fs;
-use std::io::IsTerminal;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
@@ -8,6 +7,7 @@ use crate::arch::Arch;
 use crate::cli::FixArgs;
 use crate::cli::SetupArgs;
 use crate::context::AppContext;
+use crate::output::{Section, color_enabled, colorize, print_report};
 use crate::rust_target;
 use crate::sysroot;
 use crate::tool_env::ensure_rust_target_installed;
@@ -17,7 +17,30 @@ pub fn run_fix(ctx: &AppContext, args: &FixArgs) -> Result<()> {
         bail!("rustup is not installed or not in PATH");
     }
 
-    warn_missing_rpmbuild();
+    let use_color = color_enabled();
+    let verbose = ctx.verbose;
+    let mut sections = Vec::new();
+
+    // -- Prerequisites -------------------------------------------------------
+
+    let mut prereq = Section::new("Prerequisites");
+    prereq.ok("rustup");
+    if which::which("rpmbuild").is_ok() {
+        prereq.ok("rpmbuild");
+    } else {
+        let mut msg =
+            "rpmbuild not found (install rpm-build) — only needed for cargo tizen rpm".to_string();
+        if let Some(hint) = rpmbuild_install_hint_from_os_release() {
+            msg.push_str(&format!(
+                "\n  install with: {}",
+                colorize(use_color, "1;36", &hint)
+            ));
+        }
+        prereq.warn(msg);
+    }
+    sections.push(prereq);
+
+    // -- Per-architecture fix ------------------------------------------------
 
     let arches: Vec<Arch> = if let Some(arch) = args.arch {
         vec![arch]
@@ -25,104 +48,79 @@ pub fn run_fix(ctx: &AppContext, args: &FixArgs) -> Result<()> {
         Arch::all().to_vec()
     };
 
-    let mut missing_targets = Vec::new();
-    let mut failures = Vec::new();
     for arch in arches {
+        let mut sec = Section::new(format!("Architecture: {arch}"));
+
+        // Rust target
         let rust_target = match rust_target::resolve_for_arch(ctx, arch) {
             Ok(target) => target,
             Err(err) => {
-                failures.push(format!(
-                    "failed to resolve rust target for {}: {}",
-                    arch, err
-                ));
+                sec.error(format!("failed to resolve rust target: {err}"));
+                sections.push(sec);
                 continue;
             }
         };
-        if ensure_rust_target_installed(&rust_target)? {
-            ctx.info(format!(
-                "[ok] rust target already installed for {}: {}",
-                arch, rust_target
-            ));
-        } else {
-            missing_targets.push((arch, rust_target));
-        }
 
-        if let Err(err) = ensure_sysroot_ready(ctx, arch) {
-            failures.push(format!("failed to prepare sysroot for {}: {}", arch, err));
-        }
-    }
+        match ensure_rust_target_installed(&rust_target) {
+            Ok(true) => sec.ok(format!("rust target installed: {rust_target}")),
+            Ok(false) => {
+                ctx.info(format!("installing rust target: {rust_target}"));
+                let status = Command::new("rustup")
+                    .arg("target")
+                    .arg("add")
+                    .arg(&rust_target)
+                    .status()
+                    .with_context(|| format!("failed to run rustup target add {}", rust_target));
 
-    for (arch, rust_target) in missing_targets {
-        ctx.info(format!(
-            "installing missing rust target for {}: {}",
-            arch, rust_target
-        ));
-        let status = Command::new("rustup")
-            .arg("target")
-            .arg("add")
-            .arg(&rust_target)
-            .status()
-            .with_context(|| format!("failed to run rustup target add {}", rust_target));
-
-        match status {
-            Ok(status) if status.success() => {
-                ctx.info(format!("[ok] installed rust target {}", rust_target));
+                match status {
+                    Ok(s) if s.success() => {
+                        sec.ok(format!("installed rust target: {rust_target}"));
+                    }
+                    Ok(s) => sec.error(format!(
+                        "rustup target add {rust_target} failed with status: {s}"
+                    )),
+                    Err(err) => sec.error(format!("{err}")),
+                }
             }
-            Ok(status) => failures.push(format!(
-                "rustup target add {} failed with status: {}",
-                rust_target, status
-            )),
-            Err(err) => failures.push(err.to_string()),
+            Err(err) => sec.error(format!("failed to query rust targets: {err}")),
         }
+
+        // Sysroot
+        if sysroot::resolve_for_build(ctx, arch).is_ok() {
+            sec.ok(format!("sysroot ready for {arch}"));
+        } else {
+            ctx.info(format!("preparing sysroot for {arch}"));
+            let setup = SetupArgs {
+                arch: Some(arch),
+                profile: None,
+                platform_version: None,
+                provider: None,
+                sdk_root: None,
+                force: false,
+            };
+            match sysroot::run_setup(ctx, &setup) {
+                Ok(()) => sec.ok(format!("sysroot prepared for {arch}")),
+                Err(err) => sec.error_multiline(&format!("sysroot setup failed for {arch}: {err}")),
+            }
+        }
+
+        sections.push(sec);
     }
 
-    if failures.is_empty() {
-        ctx.info("fix completed");
-        return Ok(());
-    }
+    // -- Render output -------------------------------------------------------
 
-    for failure in &failures {
-        eprintln!("[error] {failure}");
-    }
-    bail!("fix found {} issue(s)", failures.len())
-}
+    let error_count = print_report(
+        &sections,
+        use_color,
+        verbose,
+        Some("Fix summary (to see all details, run cargo tizen fix -v):"),
+    );
 
-fn ensure_sysroot_ready(ctx: &AppContext, arch: Arch) -> Result<()> {
-    if sysroot::resolve_for_build(ctx, arch).is_ok() {
-        ctx.info(format!("[ok] sysroot already ready for {}", arch));
-        return Ok(());
+    if error_count > 0 {
+        let total = sections.len();
+        bail!("fix encountered issues in {error_count} of {total} categories")
     }
-
-    ctx.info(format!("preparing sysroot for {}", arch));
-    let setup = SetupArgs {
-        arch: Some(arch),
-        profile: None,
-        platform_version: None,
-        provider: None,
-        sdk_root: None,
-        force: false,
-    };
-    sysroot::run_setup(ctx, &setup)
-}
-
-fn warn_missing_rpmbuild() {
-    if which::which("rpmbuild").is_ok() {
-        return;
-    }
-
-    let use_color = color_output_enabled();
-    eprintln!("[warn] missing tool: rpmbuild [required only for `cargo tizen rpm`]");
-    if let Some(hint) = rpmbuild_install_hint_from_os_release() {
-        eprintln!(
-            "[warn] install with: {}",
-            colorize(use_color, "1;36", &hint)
-        );
-    } else {
-        eprintln!(
-            "[warn] install your distro package that provides {}",
-            colorize(use_color, "1;36", "`rpmbuild` (commonly `rpm-build`)")
-        );
-    }
+    Ok(())
 }
 
 fn rpmbuild_install_hint_from_os_release() -> Option<String> {
@@ -184,17 +182,6 @@ fn parse_os_release(raw: &str) -> std::collections::HashMap<String, String> {
         }
     }
     values
-}
-
-fn color_output_enabled() -> bool {
-    std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none()
-}
-
-fn colorize(enabled: bool, ansi_code: &str, value: &str) -> String {
-    if enabled {
-        return format!("\x1b[{}m{}\x1b[0m", ansi_code, value);
-    }
-    value.to_string()
 }
 
 #[cfg(test)]

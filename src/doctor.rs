@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::{Result, bail};
@@ -7,6 +6,7 @@ use anyhow::{Result, bail};
 use crate::arch::Arch;
 use crate::cli::DoctorArgs;
 use crate::context::AppContext;
+use crate::output::{Section, color_enabled, print_report};
 use crate::rust_target;
 use crate::sdk::TizenSdk;
 use crate::sysroot;
@@ -16,130 +16,8 @@ use crate::tool_env::{
     ensure_rust_target_installed, find_tool_in_sdk, resolve_toolchain, verify_c_compiler_sanity,
 };
 
-// ---------------------------------------------------------------------------
-// Section model
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Severity {
-    Ok,
-    Warn,
-    Error,
-}
-
-struct CheckItem {
-    severity: Severity,
-    message: String,
-    detail: Vec<String>,
-}
-
-struct Section {
-    title: String,
-    items: Vec<CheckItem>,
-}
-
-impl Section {
-    fn new(title: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            items: Vec::new(),
-        }
-    }
-
-    fn ok(&mut self, message: impl Into<String>) {
-        self.items.push(CheckItem {
-            severity: Severity::Ok,
-            message: message.into(),
-            detail: Vec::new(),
-        });
-    }
-
-    fn warn(&mut self, message: impl Into<String>) {
-        self.items.push(CheckItem {
-            severity: Severity::Warn,
-            message: message.into(),
-            detail: Vec::new(),
-        });
-    }
-
-    fn error_multiline(&mut self, full: &str) {
-        let mut lines = full.lines();
-        let first = lines.next().unwrap_or(full).to_string();
-        let detail: Vec<String> = lines.map(String::from).collect();
-        self.items.push(CheckItem {
-            severity: Severity::Error,
-            message: first,
-            detail,
-        });
-    }
-
-    fn error(&mut self, message: impl Into<String>) {
-        self.items.push(CheckItem {
-            severity: Severity::Error,
-            message: message.into(),
-            detail: Vec::new(),
-        });
-    }
-
-    fn severity(&self) -> Severity {
-        self.items
-            .iter()
-            .map(|i| i.severity)
-            .max()
-            .unwrap_or(Severity::Ok)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Rendering
-// ---------------------------------------------------------------------------
-
-fn severity_bracket(sev: Severity, color: bool) -> String {
-    match sev {
-        Severity::Ok => colorize(color, "1;32", "[✓]"),
-        Severity::Warn => colorize(color, "1;33", "[!]"),
-        Severity::Error => colorize(color, "1;31", "[✗]"),
-    }
-}
-
-fn item_marker(sev: Severity, color: bool) -> String {
-    match sev {
-        Severity::Ok => colorize(color, "32", "•"),
-        Severity::Warn => colorize(color, "33", "!"),
-        Severity::Error => colorize(color, "31", "✗"),
-    }
-}
-
-fn render_sections(sections: &[Section], use_color: bool, verbose: bool) -> String {
-    let mut out = String::new();
-    for (i, section) in sections.iter().enumerate() {
-        if i > 0 {
-            out.push('\n');
-        }
-        let bracket = severity_bracket(section.severity(), use_color);
-        let title = colorize(use_color, "1", &section.title);
-        out.push_str(&format!("{} {}\n", bracket, title));
-
-        for item in &section.items {
-            if item.severity == Severity::Ok && !verbose {
-                continue;
-            }
-            let marker = item_marker(item.severity, use_color);
-            out.push_str(&format!("    {} {}\n", marker, item.message));
-            for line in &item.detail {
-                out.push_str(&format!("      {}\n", line));
-            }
-        }
-    }
-    out
-}
-
-// ---------------------------------------------------------------------------
-// Doctor checks
-// ---------------------------------------------------------------------------
-
 pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
-    let use_color = color_output_enabled();
+    let use_color = color_enabled();
     let verbose = ctx.verbose;
     let mut sections = Vec::new();
 
@@ -214,7 +92,6 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         let toolchain = resolve_toolchain(ctx, arch);
         let linker = toolchain.linker;
 
-        // Linker
         if binary_exists(&linker) {
             sec.ok(format!("linker: {linker}"));
         } else {
@@ -232,7 +109,6 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             sec.error(message);
         }
 
-        // Rust target
         let rust_target = match rust_target::resolve_for_arch(ctx, arch) {
             Ok(target) => target,
             Err(err) => {
@@ -251,7 +127,6 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             Err(err) => sec.error(format!("failed to query rust targets: {err}")),
         }
 
-        // Rootstrap resolution
         if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
             let sdk_root_override = ctx.config.sdk_root();
             match sysroot::resolve_profile_platform_for_arch(ctx, arch) {
@@ -283,7 +158,6 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             }
         }
 
-        // Sysroot cache + compiler sanity
         match sysroot::resolve_for_build(ctx, arch) {
             Ok(resolved) => {
                 sec.ok(format!("sysroot cache: {}", resolved.sysroot_dir.display()));
@@ -300,51 +174,18 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
 
     // -- Render output -------------------------------------------------------
 
-    if !verbose {
-        println!(
-            "{}",
-            colorize(
-                use_color,
-                "2",
-                "Doctor summary (to see all details, run cargo tizen doctor -v):"
-            )
-        );
-        println!();
-    }
+    let error_count = print_report(
+        &sections,
+        use_color,
+        verbose,
+        Some("Doctor summary (to see all details, run cargo tizen doctor -v):"),
+    );
 
-    let rendered = render_sections(&sections, use_color, verbose);
-    print!("{rendered}");
-
-    let error_count = sections
-        .iter()
-        .filter(|s| s.severity() == Severity::Error)
-        .count();
-    let total = sections.len();
-
-    if error_count == 0 {
-        println!(
-            "\n{}",
-            colorize(
-                use_color,
-                "1;32",
-                &format!("✓ Doctor found no issues ({total} categories checked).")
-            )
-        );
-        Ok(())
-    } else {
-        println!(
-            "\n{}",
-            colorize(
-                use_color,
-                "1;31",
-                &format!(
-                    "✗ Doctor found issues in {} of {} categories.",
-                    error_count, total
-                )
-            )
-        );
+    if error_count > 0 {
+        let total = sections.len();
         bail!("doctor found issues in {error_count} of {total} categories")
     }
+    Ok(())
 }
 
 fn build_rootstrap_coverage_section(ctx: &AppContext, arches: &[Arch]) -> Section {
@@ -408,10 +249,6 @@ fn build_rootstrap_coverage_section(ctx: &AppContext, arches: &[Arch]) -> Sectio
     sec
 }
 
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
-
 fn version_sort_key(version: &str) -> (u64, u64) {
     let mut parts = version.split('.');
     let major = parts
@@ -423,17 +260,6 @@ fn version_sort_key(version: &str) -> (u64, u64) {
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
     (major, minor)
-}
-
-fn color_output_enabled() -> bool {
-    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
-}
-
-fn colorize(enabled: bool, ansi_code: &str, value: &str) -> String {
-    if enabled {
-        return format!("\x1b[{}m{}\x1b[0m", ansi_code, value);
-    }
-    value.to_string()
 }
 
 fn binary_exists(value: &str) -> bool {

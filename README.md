@@ -20,6 +20,15 @@ Known gap:
 - `repo` provider is not implemented yet (only `rootstrap` is functional)
 - RPM/TPK staging currently expects the built binary name to match `[package].name`
 
+## Upstream Reference
+
+`cargo-tizen` is an adaptation of design patterns from `flutter-tizen` for Tizen SDK/rootstrap/device workflows, applied to Rust/Cargo build and packaging.
+
+- Upstream repo: https://github.com/flutter-tizen/flutter-tizen
+- Upstream docs: https://github.com/flutter-tizen/flutter-tizen/tree/master/doc
+
+When upstream design/commands around rootstrap resolution, Tizen SDK integration, device discovery (`sdb`), install, or launch change, review and sync relevant behavior/docs in this repository.
+
 ## Docs
 
 - Linux installation: [doc/linux-install.md](doc/linux-install.md)

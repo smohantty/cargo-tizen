@@ -1,5 +1,12 @@
 # Packaging Model (vs flutter-tizen)
 
+## Upstream links
+
+- Repo: https://github.com/flutter-tizen/flutter-tizen
+- Docs: https://github.com/flutter-tizen/flutter-tizen/tree/master/doc
+
+This document exists so `cargo-tizen` can be kept aligned with upstream `flutter-tizen` design changes where relevant to Tizen SDK/rootstrap/device behavior.
+
 ## What flutter-tizen does
 
 `flutter-tizen` primarily produces **TPK** packages for apps.

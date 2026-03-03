@@ -13,6 +13,12 @@ Invocation model:
 - Binary name: `cargo-tizen`
 - User command: `cargo tizen ...`
 
+Upstream adaptation reference:
+- `cargo-tizen` intentionally adapts workflow decisions from `flutter-tizen` where applicable.
+- Upstream repo: https://github.com/flutter-tizen/flutter-tizen
+- Upstream docs: https://github.com/flutter-tizen/flutter-tizen/tree/master/doc
+- Sync expectation: if upstream rootstrap/device lifecycle behavior changes, review this design and implementation for alignment.
+
 ## 1.1 Implementation Status (Current)
 
 Implemented:

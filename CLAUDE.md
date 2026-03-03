@@ -11,6 +11,14 @@ This file defines repository-specific rules and context for future coding agents
 
 Current architecture is intentionally pragmatic and CLI-first.
 
+## Upstream baseline
+
+This project is an adaptation of design patterns from:
+- https://github.com/flutter-tizen/flutter-tizen
+- https://github.com/flutter-tizen/flutter-tizen/tree/master/doc
+
+When changing SDK/rootstrap/device workflows, check upstream behavior first and update docs/design if divergence is intentional.
+
 ## Command surface (must stay stable unless explicitly changed)
 
 - `cargo tizen setup`

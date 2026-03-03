@@ -56,6 +56,10 @@ Generate RPM from built binary.
 cargo tizen rpm -A <armv7l|aarch64> [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]
 ```
 
+Current behavior:
+
+- Staging expects the built binary path `<target-dir>/<rust-target>/<profile>/<package-name>`.
+
 Examples:
 
 ```sh
@@ -93,6 +97,7 @@ Notes:
 - If `--manifest` is omitted, lookup order is:
   - `<workspace>/tizen-manifest.xml`
   - `<workspace>/tizen/tizen-manifest.xml`
+- Staging expects the built binary path `<target-dir>/<rust-target>/<profile>/<package-name>`.
 
 Examples:
 
@@ -127,3 +132,5 @@ Packaging outputs:
 
 - `target/tizen/<arch>/<debug|release>/stage/`
 - `target/tizen/<arch>/<debug|release>/rpmbuild/`
+- `target/tizen/<arch>/<debug|release>/tpk/root/`
+- `target/tizen/<arch>/<debug|release>/tpk/out/`

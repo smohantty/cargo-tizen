@@ -68,9 +68,7 @@ pub fn entry_path(cache_root: &Path, key: &CacheKey) -> PathBuf {
 
 pub fn temp_entry_path(entry_path: &Path) -> PathBuf {
     let pid = std::process::id();
-    let mut path = entry_path.to_path_buf();
-    path.set_extension(format!("tmp-{pid}"));
-    path
+    sibling_with_suffix(entry_path, &format!("tmp-{pid}"))
 }
 
 pub fn sysroot_dir(entry_path: &Path) -> PathBuf {
@@ -127,8 +125,7 @@ pub fn acquire_lock(entry_path: &Path) -> Result<CacheLock> {
     fs::create_dir_all(parent)
         .with_context(|| format!("failed to create cache parent dir: {}", parent.display()))?;
 
-    let mut lock_path = entry_path.to_path_buf();
-    lock_path.set_extension("lock");
+    let lock_path = sibling_with_suffix(entry_path, "lock");
 
     let file = OpenOptions::new()
         .create_new(true)
@@ -178,4 +175,43 @@ fn sanitize_component(input: &str) -> String {
             }
         })
         .collect()
+}
+
+fn sibling_with_suffix(entry_path: &Path, suffix: &str) -> PathBuf {
+    let parent = entry_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let name = entry_path
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("entry");
+    parent.join(format!("{name}.{suffix}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{sibling_with_suffix, temp_entry_path};
+
+    #[test]
+    fn suffix_generation_preserves_dotted_name() {
+        let entry = Path::new("/tmp/rootstrap-mobile-9.0-armv7l-v1");
+        let lock = sibling_with_suffix(entry, "lock");
+        assert_eq!(
+            lock.to_string_lossy(),
+            "/tmp/rootstrap-mobile-9.0-armv7l-v1.lock"
+        );
+    }
+
+    #[test]
+    fn temp_path_generation_preserves_dotted_name() {
+        let entry = Path::new("/tmp/rootstrap-mobile-9.0-armv7l-v1");
+        let temp = temp_entry_path(entry);
+        assert!(
+            temp.to_string_lossy()
+                .starts_with("/tmp/rootstrap-mobile-9.0-armv7l-v1.tmp-")
+        );
+    }
 }

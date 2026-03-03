@@ -71,9 +71,9 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
 
         let rust_target = ctx.config.rust_target_for(arch);
         match ensure_rust_target_installed(&rust_target) {
-            Ok(true) => ctx.info(format!("[ok] rust target listed: {rust_target}")),
+            Ok(true) => ctx.info(format!("[ok] rust target installed: {rust_target}")),
             Ok(false) => failures.push(format!(
-                "rust target not listed by rustc: {} (try: rustup target add {})",
+                "rust target not installed: {} (try: rustup target add {})",
                 rust_target, rust_target
             )),
             Err(err) => failures.push(format!(

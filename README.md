@@ -14,9 +14,11 @@ Implemented:
 - Rootstrap-based provider with profile fallback policy
 - SDK auto-discovery
 - RPM generation via `rpmbuild`
+- TPK generation via `tizen package -t tpk`
 
 Known gap:
 - `repo` provider is not implemented yet (only `rootstrap` is functional)
+- RPM/TPK staging currently expects the built binary name to match `[package].name`
 
 ## Docs
 
@@ -187,6 +189,10 @@ Cargo build output:
 Staging and RPM output:
 - `target/tizen/<arch>/<debug|release>/stage/`
 - `target/tizen/<arch>/<debug|release>/rpmbuild/`
+
+TPK output:
+- `target/tizen/<arch>/<debug|release>/tpk/root/`
+- `target/tizen/<arch>/<debug|release>/tpk/out/`
 
 ## Command Reference
 

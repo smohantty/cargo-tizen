@@ -7,13 +7,21 @@ use crate::arch::Arch;
 use crate::cli::BuildArgs;
 use crate::context::AppContext;
 use crate::sysroot;
-use crate::tool_env::{ToolEnv, resolve_toolchain};
+use crate::tool_env::{ToolEnv, ensure_rust_target_installed, resolve_toolchain};
 
 pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     let resolved = sysroot::resolve_for_build(ctx, args.arch)?;
     let rust_target = ctx.config.rust_target_for(args.arch);
     let toolchain = resolve_toolchain(ctx, args.arch);
     let target_dir = resolve_target_dir(&ctx.workspace_root, args.arch, args.target_dir.as_deref());
+
+    if !ensure_rust_target_installed(&rust_target)? {
+        bail!(
+            "rust target is not installed: {}. run: rustup target add {}",
+            rust_target,
+            rust_target
+        );
+    }
 
     ctx.debug(format!(
         "using sysroot {} (provider={}, profile={}, platform={})",

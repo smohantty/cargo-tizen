@@ -21,7 +21,7 @@ Implemented:
 - Rootstrap-based sysroot provisioning from installed Tizen SDK rootstraps.
 - Rootstrap fallback policy for missing `tv-samsung` rootstraps.
 - Sysroot cache with metadata, lock, and atomic finalize.
-- Centralized `ToolEnv` for build and rpm subprocess environments.
+- Centralized `ToolEnv` for build/rpm/tpk subprocess environments.
 - Build output isolation under `target/tizen/<arch>/cargo`.
 - RPM staging/rpmbuild isolation under `target/tizen/<arch>/<debug|release>/...`.
 - TPK staging under `target/tizen/<arch>/<debug|release>/tpk/root` and packaging via `tizen package -t tpk`.
@@ -31,6 +31,7 @@ Not implemented yet:
 - `repo` provider internals (returns explicit "not implemented" error).
 - GBS backend.
 - Full integration test suite.
+- Multi-bin target selection (RPM/TPK currently stage `<package.name>` binary path).
 
 
 ## 2. Goals and Non-Goals
@@ -113,7 +114,7 @@ Behavior:
 ## 4.4 `rpm`
 
 ```bash
-cargo tizen rpm -A <armv7l|aarch64> [--release] [--spec <path>] [--output <dir>] [--no-build]
+cargo tizen rpm -A <armv7l|aarch64> [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]
 ```
 
 Purpose:
@@ -218,6 +219,9 @@ dest = "/usr/bin/my-app"
 mode = "0755"
 ```
 
+Note:
+- `package.metadata.tizen` is currently documented as planned schema; the current implementation does not consume this metadata yet.
+
 
 ## 6. Sysroot Provider and Cache
 
@@ -242,8 +246,8 @@ Current path:
 
 Files:
 - `sysroot/` (headers/libs/crt/pkgconfig)
-- `meta.json` (source, timestamps, tool versions, checksums)
-- `state` (`ready`, `partial`, `failed`)
+- `meta.json` (created timestamp, arch/profile/platform/provider/fingerprint)
+- `state` (currently `ready` is used)
 - `.lock` (advisory lock for concurrent setup)
 
 ## 6.3 Cache Key
@@ -297,7 +301,7 @@ Given `cargo tizen build -A armv7l`:
 1. Load and merge configuration.
 2. Map arch -> Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
 3. Ensure sysroot exists and validates.
-4. Ensure Rust target is installed (`rustup target add` guidance or auto-install if enabled).
+4. Ensure Rust target is installed (with `rustup target add` guidance when missing).
 5. Resolve toolchain binaries (linker, cc, cxx, ar) from config, PATH, or SDK tool directories.
 6. Construct execution environment via `ToolEnv`:
    - `CC_<target>`
@@ -311,7 +315,7 @@ Given `cargo tizen build -A armv7l`:
    - `PATH` augmentation with SDK/toolchain directories
    - `USER_CPP_OPTS=-std=c++17`
 7. Run `cargo build --target <triple> --target-dir target/tizen/<arch>/cargo ...`.
-8. Store logs and summarize output artifact paths.
+8. Stream build output and return command success/failure.
 
 Implementation detail:
 - Prefer ephemeral `CARGO_TARGET_<TRIPLE>_*` env overrides over mutating user `.cargo/config.toml`.
@@ -322,16 +326,16 @@ Implementation detail:
 Given `cargo tizen rpm -A aarch64`:
 1. Run build phase unless `--no-build`.
 2. Create staging root: `target/tizen/<arch>/<debug|release>/stage/`.
-3. Copy binaries/assets according to metadata/config.
+3. Copy built binary to `/usr/bin/<package_name>` in staging.
 4. Resolve spec:
    - use `--spec` if provided
-   - otherwise generate from template and metadata
+   - otherwise generate via built-in minimal spec renderer
 5. Prepare rpmbuild tree:
    - `target/tizen/<arch>/<debug|release>/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}`
 6. Invoke:
    - `rpmbuild -bb <spec> --target <rpm_arch> --define "_topdir <...>"`
    - with SDK-aware PATH augmentation
-7. Emit package list and checksums.
+7. Emit generated package path(s).
 
 Default `rpm_arch` mapping:
 - `armv7l` -> `armv7l` (config-overridable)
@@ -341,7 +345,6 @@ Spec generation minimum fields:
 - `Name`, `Version`, `Release`, `Summary`, `License`
 - `%description`
 - `%files`
-- Optional `%post/%preun` from metadata hooks
 
 ## 8.1 TPK Packaging Pipeline
 
@@ -385,12 +388,15 @@ Example:
 - `ToolMissing: rpmbuild not found. Install rpm-build package and retry.`
 
 
-## 10. Security and Reproducibility
+## 10. Security and Reproducibility (Planned Hardening)
 
-- Verify provider inputs using checksums/signatures where available.
-- Record provenance in `meta.json` (URLs, digest, timestamp).
-- Avoid silently upgrading cache content; require explicit refresh for source changes unless policy says otherwise.
-- Support offline mode when cache is already populated.
+- Current:
+  - cache reuse is explicit (`ready` state + validation)
+  - cache refresh is explicit via `setup --force`
+- Planned:
+  - provider input verification using checksums/signatures where available
+  - richer provenance in `meta.json` (URLs/digest/tool versions)
+  - explicit offline policy flags
 
 
 ## 11. Concurrency and Robustness
@@ -398,24 +404,29 @@ Example:
 - Use per-cache-key lock files to prevent duplicate setup work.
 - Write into temp dir then atomically rename to final cache path.
 - Never treat partially written sysroot as valid.
-- Allow cleanup of stale locks with timeout heuristics.
+- Stale lock cleanup heuristics are not implemented yet.
 
 
-## 12. Testing Strategy
+## 12. Testing Strategy (Current + Planned)
 
-### 12.1 Unit Tests
+### 12.1 Current Unit Tests
+- Arch mapping stability.
+- Rootstrap profile mapping/fallback candidate generation.
+- Cache sibling suffix/temp naming with dotted fingerprints.
+
+### 12.2 Planned Unit Tests
 - Arch mapping logic.
 - Config precedence resolution.
 - Cache key generation and path resolution.
 - Spec template rendering.
 
-### 12.2 Integration Tests
+### 12.3 Planned Integration Tests
 - `setup` populates cache and creates metadata/state.
 - repeated `build` hits cache.
 - `rpm` creates expected package naming and arch.
 - corrupted cache entry is detected and rebuilt.
 
-### 12.3 End-to-End Matrix
+### 12.4 Planned End-to-End Matrix
 - `armv7l`, `aarch64`
 - debug + release
 - clean cache + warm cache scenarios
@@ -488,7 +499,7 @@ tests/
 
 - Should `setup` auto-install missing Rust targets (`rustup target add`) or only suggest commands?
 - Should `repo` provider be implemented next or replaced by a GBS-first provider?
-- Default RPM layout for binaries/assets when metadata is minimal.
+- When should `package.metadata.tizen` be wired into staging/spec generation?
 - Whether to support a `gbs` backend in Phase 1 or defer to Phase 2.
 
 

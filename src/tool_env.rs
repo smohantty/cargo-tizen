@@ -257,9 +257,10 @@ fn sdk_augmented_path(ctx: &AppContext) -> Option<OsString> {
 }
 
 pub fn ensure_rust_target_installed(target: &str) -> Result<bool> {
-    let output = std::process::Command::new("rustc")
-        .arg("--print")
-        .arg("target-list")
+    let output = std::process::Command::new("rustup")
+        .arg("target")
+        .arg("list")
+        .arg("--installed")
         .output()?;
     if !output.status.success() {
         return Ok(false);

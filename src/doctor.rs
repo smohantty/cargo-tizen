@@ -16,67 +16,184 @@ use crate::tool_env::{
     ensure_rust_target_installed, find_tool_in_sdk, resolve_toolchain, verify_c_compiler_sanity,
 };
 
-pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
-    let mut failures = Vec::new();
-    let mut warnings = Vec::new();
-    let detailed = ctx.verbose;
+// ---------------------------------------------------------------------------
+// Section model
+// ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Severity {
+    Ok,
+    Warn,
+    Error,
+}
+
+struct CheckItem {
+    severity: Severity,
+    message: String,
+    detail: Vec<String>,
+}
+
+struct Section {
+    title: String,
+    items: Vec<CheckItem>,
+}
+
+impl Section {
+    fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            items: Vec::new(),
+        }
+    }
+
+    fn ok(&mut self, message: impl Into<String>) {
+        self.items.push(CheckItem {
+            severity: Severity::Ok,
+            message: message.into(),
+            detail: Vec::new(),
+        });
+    }
+
+    fn warn(&mut self, message: impl Into<String>) {
+        self.items.push(CheckItem {
+            severity: Severity::Warn,
+            message: message.into(),
+            detail: Vec::new(),
+        });
+    }
+
+    fn error_multiline(&mut self, full: &str) {
+        let mut lines = full.lines();
+        let first = lines.next().unwrap_or(full).to_string();
+        let detail: Vec<String> = lines.map(String::from).collect();
+        self.items.push(CheckItem {
+            severity: Severity::Error,
+            message: first,
+            detail,
+        });
+    }
+
+    fn error(&mut self, message: impl Into<String>) {
+        self.items.push(CheckItem {
+            severity: Severity::Error,
+            message: message.into(),
+            detail: Vec::new(),
+        });
+    }
+
+    fn severity(&self) -> Severity {
+        self.items
+            .iter()
+            .map(|i| i.severity)
+            .max()
+            .unwrap_or(Severity::Ok)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+fn severity_bracket(sev: Severity, color: bool) -> String {
+    match sev {
+        Severity::Ok => colorize(color, "1;32", "[✓]"),
+        Severity::Warn => colorize(color, "1;33", "[!]"),
+        Severity::Error => colorize(color, "1;31", "[✗]"),
+    }
+}
+
+fn item_marker(sev: Severity, color: bool) -> String {
+    match sev {
+        Severity::Ok => colorize(color, "32", "•"),
+        Severity::Warn => colorize(color, "33", "!"),
+        Severity::Error => colorize(color, "31", "✗"),
+    }
+}
+
+fn render_sections(sections: &[Section], use_color: bool, verbose: bool) -> String {
+    let mut out = String::new();
+    for (i, section) in sections.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        let bracket = severity_bracket(section.severity(), use_color);
+        let title = colorize(use_color, "1", &section.title);
+        out.push_str(&format!("{} {}\n", bracket, title));
+
+        for item in &section.items {
+            if item.severity == Severity::Ok && !verbose {
+                continue;
+            }
+            let marker = item_marker(item.severity, use_color);
+            out.push_str(&format!("    {} {}\n", marker, item.message));
+            for line in &item.detail {
+                out.push_str(&format!("      {}\n", line));
+            }
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Doctor checks
+// ---------------------------------------------------------------------------
+
+pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
+    let use_color = color_output_enabled();
+    let verbose = ctx.verbose;
+    let mut sections = Vec::new();
+
+    // -- Host tools ----------------------------------------------------------
+
+    let mut host = Section::new("Host tools");
+    let mut found_tools = Vec::new();
     let mut missing_tools = Vec::new();
     for tool in ["cargo", "rustc", "rustup"] {
         if which::which(tool).is_ok() {
-            if detailed {
-                ctx.info(format!("[ok] tool found: {tool}"));
-            }
+            found_tools.push(tool);
         } else {
-            missing_tools.push(tool.to_string());
-            failures.push(format!("missing tool: {tool}"));
+            missing_tools.push(tool);
         }
     }
-    if !detailed && missing_tools.is_empty() {
-        ctx.info("[ok] required host tools found: cargo, rustc, rustup");
+    if missing_tools.is_empty() {
+        host.ok(found_tools.join(", "));
+    } else {
+        for tool in &missing_tools {
+            host.error(format!("missing: {tool}"));
+        }
+        if !found_tools.is_empty() {
+            host.ok(found_tools.join(", "));
+        }
     }
     if which::which("rpmbuild").is_ok() {
-        if detailed {
-            ctx.info("[ok] tool found: rpmbuild");
-        }
+        host.ok("rpmbuild");
     } else {
-        warnings.push(
-            "missing tool: rpmbuild (install package `rpm-build`) [required only for `cargo tizen rpm`]"
-                .to_string(),
-        );
+        host.warn("rpmbuild not found (install rpm-build) — only needed for cargo tizen rpm");
     }
+    sections.push(host);
 
+    // -- Tizen SDK -----------------------------------------------------------
+
+    let mut sdk_section = Section::new("Tizen SDK");
     let sdk = TizenSdk::locate(ctx.config.sdk_root().as_deref());
     match &sdk {
         Some(sdk) => {
-            if detailed {
-                ctx.info(format!(
-                    "[ok] Tizen SDK found: {} (flavor: {})",
-                    sdk.root().display(),
-                    sdk.flavor()
-                ));
-            } else {
-                ctx.info(format!(
-                    "[ok] Tizen SDK found: {} ({})",
-                    sdk.root().display(),
-                    sdk.flavor()
-                ));
-            }
-
+            sdk_section.ok(format!("{} ({})", sdk.root().display(), sdk.flavor()));
             let tizen_cli = sdk.tizen_cli();
             if tizen_cli.is_file() {
-                if detailed {
-                    ctx.info(format!("[ok] tizen CLI found: {}", tizen_cli.display()));
-                }
+                sdk_section.ok(format!("tizen CLI: {}", tizen_cli.display()));
             } else {
-                warnings.push(format!(
+                sdk_section.warn(format!(
                     "tizen CLI not found at expected path: {}",
                     tizen_cli.display()
                 ));
             }
         }
-        None => failures.push(MISSING_SDK_GUIDANCE.to_string()),
+        None => sdk_section.error_multiline(MISSING_SDK_GUIDANCE),
     }
+    sections.push(sdk_section);
+
+    // -- Rootstrap coverage --------------------------------------------------
 
     let arches: Vec<Arch> = if let Some(arch) = args.arch {
         vec![arch]
@@ -84,195 +201,171 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         Arch::all().to_vec()
     };
 
-    if args.arch.is_none() {
-        ctx.info("checking all supported architectures: armv7l, aarch64");
+    if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
+        let cov_section = build_rootstrap_coverage_section(ctx, &arches);
+        sections.push(cov_section);
     }
 
-    if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
-        report_rootstrap_coverage(ctx, &arches, &mut failures, &mut warnings);
-    }
+    // -- Per-architecture checks ---------------------------------------------
 
     for arch in &arches {
         let arch = *arch;
+        let mut sec = Section::new(format!("Architecture: {arch}"));
         let toolchain = resolve_toolchain(ctx, arch);
         let linker = toolchain.linker;
-        let mut arch_ready = true;
 
+        // Linker
         if binary_exists(&linker) {
-            if detailed {
-                ctx.info(format!("[ok] linker found: {linker}"));
-            }
+            sec.ok(format!("linker: {linker}"));
         } else {
-            arch_ready = false;
-            let mut message = format!("linker not found for arch {}: {}", arch, linker);
+            let mut message = format!("linker not found: {linker}");
             if let Some(sdk) = &sdk {
                 let default_linker = ctx.config.linker_for(arch);
                 if let Some(found) = find_tool_in_sdk(sdk, &default_linker) {
                     message.push_str(&format!(
-                        " (found candidate in SDK: {}; set [arch.{}].linker to this path)",
+                        " (candidate in SDK: {}; set [arch.{}].linker)",
                         found.display(),
                         arch
                     ));
                 }
             }
-            failures.push(message);
+            sec.error(message);
         }
 
+        // Rust target
         let rust_target = match rust_target::resolve_for_arch(ctx, arch) {
             Ok(target) => target,
             Err(err) => {
-                failures.push(format!(
-                    "failed to resolve rust target for arch {}: {}",
-                    arch, err
-                ));
+                sec.error(format!("failed to resolve rust target: {err}"));
+                sections.push(sec);
                 continue;
             }
         };
         match ensure_rust_target_installed(&rust_target) {
-            Ok(true) => {
-                if detailed {
-                    ctx.info(format!("[ok] rust target installed: {rust_target}"));
-                }
-            }
+            Ok(true) => sec.ok(format!("rust target: {rust_target}")),
             Ok(false) => {
-                arch_ready = false;
-                failures.push(format!(
-                    "rust target not installed: {} (try: rustup target add {})",
-                    rust_target, rust_target
+                sec.error(format!(
+                    "rust target not installed: {rust_target} (try: rustup target add {rust_target})"
                 ));
             }
-            Err(err) => {
-                arch_ready = false;
-                failures.push(format!(
-                    "failed to query rust targets for {}: {}",
-                    rust_target, err
-                ));
-            }
+            Err(err) => sec.error(format!("failed to query rust targets: {err}")),
         }
 
-        let mut selected_rootstrap = None::<String>;
+        // Rootstrap resolution
         if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
             let sdk_root_override = ctx.config.sdk_root();
-            let (profile, platform_version) =
-                match sysroot::resolve_profile_platform_for_arch(ctx, arch) {
-                    Ok(value) => value,
-                    Err(err) => {
-                        failures.push(format!(
-                            "failed to resolve selected profile/platform for arch {}: {}",
-                            arch, err
-                        ));
-                        continue;
-                    }
-                };
-
-            let req = SetupRequest {
-                arch,
-                profile,
-                platform_version,
-                sdk_root_override,
-            };
-            match rootstrap::resolve_rootstrap(&req) {
-                Ok(resolved) => {
-                    selected_rootstrap = Some(resolved.id.clone());
-                    if detailed {
-                        let mut status = format!(
-                            "[ok] selected rootstrap resolved: {} ({})",
-                            resolved.id,
-                            resolved.root_path.display()
-                        );
-                        if resolved.used_fallback {
-                            status.push_str(" [fallback]");
+            match sysroot::resolve_profile_platform_for_arch(ctx, arch) {
+                Ok((profile, platform_version)) => {
+                    let req = SetupRequest {
+                        arch,
+                        profile,
+                        platform_version,
+                        sdk_root_override,
+                    };
+                    match rootstrap::resolve_rootstrap(&req) {
+                        Ok(resolved) => {
+                            let mut msg = format!(
+                                "rootstrap: {} ({})",
+                                resolved.id,
+                                resolved.root_path.display()
+                            );
+                            if resolved.used_fallback {
+                                msg.push_str(" [fallback]");
+                            }
+                            sec.ok(msg);
                         }
-                        ctx.info(status);
+                        Err(err) => sec.error_multiline(&format!("rootstrap: {err}")),
                     }
                 }
                 Err(err) => {
-                    arch_ready = false;
-                    failures.push(format!("rootstrap check failed: {err}"));
+                    sec.error(format!("profile/platform resolution failed: {err}"));
                 }
             }
         }
 
+        // Sysroot cache + compiler sanity
         match sysroot::resolve_for_build(ctx, arch) {
             Ok(resolved) => {
-                if let Err(err) =
-                    verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir))
-                {
-                    arch_ready = false;
-                    failures.push(format!(
-                        "c compiler sanity check failed for arch {}: {}",
-                        arch, err
-                    ));
-                } else {
-                    if detailed {
-                        ctx.info(format!("[ok] sysroot cache ready for arch {}", arch));
-                        ctx.info(format!(
-                            "[ok] c compiler sanity check passed: {}",
-                            toolchain.cc
-                        ));
-                    }
+                sec.ok(format!("sysroot cache: {}", resolved.sysroot_dir.display()));
+                match verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir)) {
+                    Ok(()) => sec.ok(format!("C compiler: {}", toolchain.cc)),
+                    Err(err) => sec.error(format!("C compiler sanity failed: {err}")),
                 }
             }
-            Err(err) => {
-                arch_ready = false;
-                failures.push(format!("sysroot not ready for arch {}: {}", arch, err));
-            }
+            Err(err) => sec.error_multiline(&format!("sysroot: {err}")),
         }
 
-        if !detailed && arch_ready {
-            let rootstrap_note = selected_rootstrap
-                .as_deref()
-                .map(|id| format!(", rootstrap={id}"))
-                .unwrap_or_default();
-            ctx.info(format!(
-                "[ok] {} ready: rust-target={}{}",
-                arch, rust_target, rootstrap_note
-            ));
-        }
+        sections.push(sec);
     }
 
-    for warning in &warnings {
-        eprintln!("[warn] {warning}");
+    // -- Render output -------------------------------------------------------
+
+    if !verbose {
+        println!(
+            "{}",
+            colorize(
+                use_color,
+                "2",
+                "Doctor summary (to see all details, run cargo tizen doctor -v):"
+            )
+        );
+        println!();
     }
 
-    if failures.is_empty() {
-        ctx.info("doctor checks passed");
-        return Ok(());
-    }
+    let rendered = render_sections(&sections, use_color, verbose);
+    print!("{rendered}");
 
-    for failure in &failures {
-        eprintln!("[error] {failure}");
+    let error_count = sections
+        .iter()
+        .filter(|s| s.severity() == Severity::Error)
+        .count();
+    let total = sections.len();
+
+    if error_count == 0 {
+        println!(
+            "\n{}",
+            colorize(
+                use_color,
+                "1;32",
+                &format!("✓ Doctor found no issues ({total} categories checked).")
+            )
+        );
+        Ok(())
+    } else {
+        println!(
+            "\n{}",
+            colorize(
+                use_color,
+                "1;31",
+                &format!(
+                    "✗ Doctor found issues in {} of {} categories.",
+                    error_count, total
+                )
+            )
+        );
+        bail!("doctor found issues in {error_count} of {total} categories")
     }
-    bail!("doctor found {} issue(s)", failures.len())
 }
 
-fn report_rootstrap_coverage(
-    ctx: &AppContext,
-    arches: &[Arch],
-    failures: &mut Vec<String>,
-    warnings: &mut Vec<String>,
-) {
+fn build_rootstrap_coverage_section(ctx: &AppContext, arches: &[Arch]) -> Section {
+    let mut sec = Section::new("Rootstrap coverage");
     let sdk_root_override = ctx.config.sdk_root();
     let mut grouped: BTreeMap<(String, String), BTreeSet<Arch>> = BTreeMap::new();
+    let mut any_warning = false;
 
     for arch in arches.iter().copied() {
         let options =
             match rootstrap::installed_rootstrap_options(sdk_root_override.as_deref(), arch) {
                 Ok(options) => options,
                 Err(err) => {
-                    failures.push(format!(
-                        "failed to discover installed rootstrap targets for arch {}: {}",
-                        arch, err
-                    ));
+                    sec.error(format!("failed to discover rootstraps for {arch}: {err}"));
                     continue;
                 }
             };
 
         if options.is_empty() {
-            warnings.push(format!(
-                "no installed rootstrap targets discovered in SDK for arch {}",
-                arch
-            ));
+            sec.warn(format!("no rootstrap targets found for {arch}"));
+            any_warning = true;
             continue;
         }
 
@@ -284,12 +377,11 @@ fn report_rootstrap_coverage(
         }
     }
 
-    if grouped.is_empty() {
-        return;
+    if grouped.is_empty() && !any_warning && sec.items.is_empty() {
+        sec.warn("no rootstrap targets discovered");
+        return sec;
     }
 
-    ctx.info("[ok] installed rootstrap coverage by platform/profile:");
-    let use_color = color_output_enabled();
     let mut keys = grouped.keys().cloned().collect::<Vec<_>>();
     keys.sort_by(|a, b| {
         version_sort_key(&b.0)
@@ -299,27 +391,26 @@ fn report_rootstrap_coverage(
 
     for key in keys {
         if let Some(arch_entries) = grouped.get(&key) {
-            let supported_arches = arches
+            let arches_str = arches
                 .iter()
                 .copied()
                 .filter(|arch| arch_entries.contains(arch))
                 .map(|arch| arch.to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            let platform_label = colorize(
-                use_color,
-                "1;36",
-                &format!("--platform-version {} --profile {}", key.0, key.1),
-            );
-            let arch_label = colorize(
-                use_color,
-                "1;32",
-                &format!("supported arch: {}", supported_arches),
-            );
-            ctx.info(format!("  ✓ {} ({})", platform_label, arch_label));
+            sec.ok(format!(
+                "--platform-version {} --profile {} ({})",
+                key.0, key.1, arches_str
+            ));
         }
     }
+
+    sec
 }
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
 
 fn version_sort_key(version: &str) -> (u64, u64) {
     let mut parts = version.split('.');

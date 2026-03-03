@@ -64,6 +64,24 @@ pub fn build_rpm(
         .arg("--define")
         .arg(format!("_topdir {}", topdir.display()));
 
+    // Host rpmbuild brp strip helpers use host binutils by default.
+    // For cross-arch RPMs this fails on target binaries (e.g. ARM on x86_64),
+    // so disable strip post-processing hooks automatically.
+    if is_cross_rpm_build(arch) {
+        ctx.debug(format!(
+            "cross-arch RPM build detected (host={} target={}); disabling brp strip hooks",
+            std::env::consts::ARCH,
+            arch.as_str()
+        ));
+        command
+            .arg("--define")
+            .arg("__brp_strip /bin/true")
+            .arg("--define")
+            .arg("__brp_strip_static_archive /bin/true")
+            .arg("--define")
+            .arg("__brp_strip_comment_note /bin/true");
+    }
+
     if let Some(out) = output_override {
         fs::create_dir_all(out)
             .with_context(|| format!("failed to create output directory {}", out.display()))?;
@@ -84,6 +102,13 @@ pub fn build_rpm(
         .unwrap_or_else(|| topdir.join("RPMS"));
 
     collect_rpms(&rpm_root)
+}
+
+fn is_cross_rpm_build(target_arch: Arch) -> bool {
+    match Arch::parse(std::env::consts::ARCH) {
+        Some(host_arch) => host_arch != target_arch,
+        None => true,
+    }
 }
 
 fn collect_rpms(root: &Path) -> Result<Vec<PathBuf>> {
@@ -107,4 +132,20 @@ fn collect_rpms(root: &Path) -> Result<Vec<PathBuf>> {
     }
 
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_cross_rpm_build;
+    use crate::arch::Arch;
+
+    #[test]
+    fn cross_rpm_detection_is_conservative() {
+        // Should always be true for a known-nonmatching target.
+        let expected_for_armv7l = !matches!(std::env::consts::ARCH, "armv7l" | "armv7" | "arm");
+        assert_eq!(is_cross_rpm_build(Arch::Armv7l), expected_for_armv7l);
+
+        let expected_for_aarch64 = !matches!(std::env::consts::ARCH, "aarch64" | "arm64");
+        assert_eq!(is_cross_rpm_build(Arch::Aarch64), expected_for_aarch64);
+    }
 }

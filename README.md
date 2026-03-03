@@ -87,7 +87,21 @@ cargo tizen --help
 
 ## Use In Any Rust Project
 
-### 1. Add project config
+### 1. Optional: add project config
+
+`.cargo-tizen.toml` is optional.
+
+- If SDK/toolchains are discoverable and defaults fit your target, you can run without this file.
+- Add this file only when you need overrides (SDK path, profile/version, linker/toolchain mapping, arch mapping).
+
+Minimal config (recommended):
+
+```toml
+[sdk]
+root = "/path/to/tizen-studio"
+```
+
+Advanced/full override example:
 
 Create `.cargo-tizen.toml` in the target Rust project:
 
@@ -128,6 +142,11 @@ cargo tizen doctor -A aarch64
 cargo tizen setup -A armv7l
 cargo tizen setup -A aarch64
 ```
+
+Note:
+- `setup` is optional for normal builds.
+- `build`/`rpm`/`tpk`/`run` automatically run setup when sysroot is missing or invalid.
+- use `setup` mainly to pre-warm cache ahead of time.
 
 Force refresh:
 

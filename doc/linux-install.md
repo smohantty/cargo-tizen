@@ -86,6 +86,11 @@ cargo tizen doctor -A aarch64
 
 If doctor reports missing SDK/rootstrap packages, see [install-tizen-sdk.md](install-tizen-sdk.md).
 
+Configuration note:
+
+- `.cargo-tizen.toml` is optional.
+- Start with defaults and add config only when you need overrides.
+
 ## 6. Configure device connection (for `cargo tizen run`)
 
 See [configure-device.md](configure-device.md), then verify:

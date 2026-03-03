@@ -155,3 +155,26 @@ pub fn resolve_for_build(ctx: &AppContext, arch: Arch) -> Result<ResolvedSysroot
         provider,
     })
 }
+
+pub fn ensure_for_build(ctx: &AppContext, arch: Arch) -> Result<ResolvedSysroot> {
+    match resolve_for_build(ctx, arch) {
+        Ok(resolved) => Ok(resolved),
+        Err(initial_err) => {
+            ctx.info(format!(
+                "sysroot for {} is not ready ({}). running setup with defaults...",
+                arch, initial_err
+            ));
+
+            let setup_args = SetupArgs {
+                arch,
+                profile: None,
+                platform_version: None,
+                provider: None,
+                sdk_root: None,
+                force: true,
+            };
+            run_setup(ctx, &setup_args).context("automatic setup failed")?;
+            resolve_for_build(ctx, arch)
+        }
+    }
+}

@@ -111,10 +111,11 @@ cargo tizen build -A <armv7l|aarch64> [--release] [--target-dir <path>] [-- <car
 ```
 
 Purpose:
-- Resolve sysroot from cache (or fail with setup guidance).
+- Resolve sysroot from cache (or auto-run setup).
 - Execute `cargo build` with target, linker, sysroot, and pkg-config environment.
 
 Behavior:
+- Ensures sysroot availability (uses cache, otherwise runs setup automatically).
 - Uses `cargo build --target <triple>`.
 - Sets target-specific linker/rustflags.
 - Keeps output isolated under Tizen target directory by default.
@@ -216,6 +217,9 @@ Config precedence (highest first):
 2. Project config: `.cargo-tizen.toml`
 3. User config: `~/.config/cargo-tizen/config.toml`
 4. Built-in defaults
+
+Note:
+- Project config file is optional. Built-in defaults are intended to support zero-config startup when SDK/toolchains are discoverable.
 
 Example:
 
@@ -345,7 +349,7 @@ Fallback policy:
 Given `cargo tizen build -A armv7l`:
 1. Load and merge configuration.
 2. Map arch -> Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
-3. Ensure sysroot exists and validates.
+3. Ensure sysroot exists and validates (auto-run setup if cache is missing/invalid).
 4. Ensure Rust target is installed (with `rustup target add` guidance when missing).
 5. Resolve toolchain binaries (linker, cc, cxx, ar) from config, PATH, or SDK tool directories.
 6. Construct execution environment via `ToolEnv`:

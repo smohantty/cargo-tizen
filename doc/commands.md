@@ -26,6 +26,12 @@ Prepare and cache sysroot for one architecture.
 cargo tizen setup -A <armv7l|aarch64> [--profile <name>] [--platform-version <ver>] [--provider <rootstrap|repo>] [--sdk-root <path>] [--force]
 ```
 
+Notes:
+
+- `setup` is optional for normal build/package/run flows.
+- `build`/`rpm`/`tpk`/`run` automatically invoke setup if sysroot is not ready.
+- Use `setup` when you want to pre-populate cache explicitly.
+
 Examples:
 
 ```sh

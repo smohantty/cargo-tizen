@@ -16,6 +16,7 @@ Packaging format:
 
 - `cargo-tizen` supports both **RPM** and **TPK** packaging.
 - If you are coming from `flutter-tizen`, note that it is primarily **TPK** oriented.
+- Device workflows use `sdb` similarly to `flutter-tizen` (`devices`, `run`).
 
 ## `setup`
 
@@ -104,6 +105,52 @@ Examples:
 ```sh
 cargo tizen tpk -A armv7l --cargo-release --manifest ./tizen-manifest.xml
 cargo tizen tpk -A aarch64 --no-build --manifest ./tizen/tizen-manifest.xml
+```
+
+## `devices`
+
+List connected devices discovered via `sdb`.
+
+```sh
+cargo tizen devices [--all]
+```
+
+Notes:
+
+- By default, output focuses on ready Tizen devices.
+- `--all` includes offline/unauthorized/non-Tizen entries parsed from `sdb devices`.
+
+Examples:
+
+```sh
+cargo tizen devices
+cargo tizen devices --all
+```
+
+## `run`
+
+Package, install, and launch on a connected device.
+
+```sh
+cargo tizen run -A <armv7l|aarch64> [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]
+```
+
+Behavior:
+
+- If `--tpk` is omitted, `cargo-tizen` builds/packages a TPK first.
+- If one ready device exists, it is auto-selected.
+- If multiple ready devices exist, `-d/--device` is required.
+- Install uses `sdb -s <id> install <tpk>`.
+- Launch uses:
+  - `sdb -s <id> shell app_launcher -e <app_id>` (normal)
+  - `sdb -s <id> shell 0 execute <app_id>` (secure protocol devices)
+
+Examples:
+
+```sh
+cargo tizen run -A armv7l --cargo-release --manifest ./tizen-manifest.xml
+cargo tizen run -A aarch64 -d 192.168.0.101:26101 --cargo-release --manifest ./tizen-manifest.xml
+cargo tizen run -A armv7l --tpk ./build/app.tpk --app-id org.example.app -d <device-id>
 ```
 
 ## `clean`

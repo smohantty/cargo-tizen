@@ -4,8 +4,10 @@ mod clean;
 mod cli;
 mod config;
 mod context;
+mod device;
 mod doctor;
 mod rpm;
+mod run_cmd;
 mod sdk;
 mod sysroot;
 mod tool_env;
@@ -37,6 +39,8 @@ fn main() -> Result<()> {
         Command::Build(args) => cargo_runner::run_build(&ctx, &args)?,
         Command::Rpm(args) => rpm::run_rpm(&ctx, &args)?,
         Command::Tpk(args) => tpk::run_tpk(&ctx, &args)?,
+        Command::Devices(args) => device::run_devices(&ctx, &args)?,
+        Command::Run(args) => run_cmd::run_run(&ctx, &args)?,
         Command::Doctor(args) => doctor::run_doctor(&ctx, &args)?,
         Command::Clean(args) => clean::run_clean(&ctx, &args)?,
     }

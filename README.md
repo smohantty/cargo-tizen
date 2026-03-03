@@ -9,7 +9,7 @@
 ## Status
 
 Implemented:
-- Commands: `setup`, `build`, `rpm`, `tpk`, `doctor`, `clean`
+- Commands: `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `clean`
 - Sysroot cache with metadata and locking
 - Rootstrap-based provider with profile fallback policy
 - SDK auto-discovery
@@ -24,6 +24,7 @@ Known gap:
 
 - Linux installation: [doc/linux-install.md](doc/linux-install.md)
 - Tizen SDK setup: [doc/install-tizen-sdk.md](doc/install-tizen-sdk.md)
+- Device setup: [doc/configure-device.md](doc/configure-device.md)
 - Command reference: [doc/commands.md](doc/commands.md)
 - Packaging model vs `flutter-tizen`: [doc/packaging-model.md](doc/packaging-model.md)
 
@@ -174,6 +175,32 @@ Sign with a Tizen security profile:
 cargo tizen tpk -A armv7l --cargo-release --manifest ./tizen-manifest.xml --sign my_profile
 ```
 
+### 7. Run On Device
+
+List connected devices:
+
+```bash
+cargo tizen devices --all
+```
+
+Build/package/install/launch on an auto-selected device:
+
+```bash
+cargo tizen run -A armv7l --cargo-release --manifest ./tizen-manifest.xml
+```
+
+Use a specific device ID:
+
+```bash
+cargo tizen run -A aarch64 -d 192.168.0.101:26101 --cargo-release --manifest ./tizen-manifest.xml
+```
+
+Install and launch a prebuilt TPK:
+
+```bash
+cargo tizen run -A armv7l -d <device-id> --tpk ./build/app.tpk --app-id org.example.app
+```
+
 ## Architecture Mapping Defaults
 
 | CLI arch | Rust target | Tizen CLI arch | Tizen build arch | RPM arch |
@@ -200,6 +227,8 @@ TPK output:
 - `cargo tizen build -A <armv7l|aarch64> [--release] [--target-dir <path>] [-- <cargo build args>]`
 - `cargo tizen rpm -A <armv7l|aarch64> [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]`
 - `cargo tizen tpk -A <armv7l|aarch64> [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]`
+- `cargo tizen devices [--all]`
+- `cargo tizen run -A <armv7l|aarch64> [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]`
 - `cargo tizen doctor [-A <armv7l|aarch64>]`
 - `cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]`
 
@@ -216,3 +245,8 @@ If `setup` fails with rootstrap missing:
 
 If `rpmbuild` is missing:
 - install your distro package providing `rpmbuild` (commonly `rpm-build`)
+
+If no device is found:
+- verify `sdb devices` shows your target as `device`
+- connect network device with `sdb connect <ip:port>`
+- rerun `cargo tizen devices --all`

@@ -31,6 +31,8 @@ pub enum Command {
     Build(BuildArgs),
     Rpm(RpmArgs),
     Tpk(TpkArgs),
+    Devices(DevicesArgs),
+    Run(RunArgs),
     Doctor(DoctorArgs),
     Clean(CleanArgs),
 }
@@ -117,6 +119,48 @@ pub struct TpkArgs {
 
     #[arg(long)]
     pub extra_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct DevicesArgs {
+    #[arg(long)]
+    pub all: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct RunArgs {
+    #[arg(short = 'A', long)]
+    pub arch: Arch,
+
+    #[arg(short = 'd', long)]
+    pub device: Option<String>,
+
+    #[arg(long)]
+    pub cargo_release: bool,
+
+    #[arg(long)]
+    pub no_build: bool,
+
+    #[arg(long)]
+    pub manifest: Option<PathBuf>,
+
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+
+    #[arg(long)]
+    pub sign: Option<String>,
+
+    #[arg(long)]
+    pub reference: Option<PathBuf>,
+
+    #[arg(long)]
+    pub extra_dir: Option<PathBuf>,
+
+    #[arg(long)]
+    pub tpk: Option<PathBuf>,
+
+    #[arg(long)]
+    pub app_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]

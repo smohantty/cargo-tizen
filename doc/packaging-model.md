@@ -21,6 +21,7 @@ Notes:
 
 - **RPM backend** (`cargo tizen rpm`)
 - **TPK backend** (`cargo tizen tpk`)
+- **Device deploy/run flow** (`cargo tizen devices`, `cargo tizen run`)
 
 RPM flow:
 
@@ -36,6 +37,13 @@ TPK flow:
 2. Cross-build Rust binary with Cargo.
 3. Stage binary + `tizen-manifest.xml`.
 4. Invoke `tizen package -t tpk`.
+
+Run flow:
+
+1. Discover devices via `sdb devices`.
+2. Filter ready Tizen devices via `sdb capability`.
+3. Install TPK with `sdb install`.
+4. Launch app via `app_launcher -e` (or secure protocol command).
 
 ## Similar techniques adopted from flutter-tizen
 

@@ -1,0 +1,81 @@
+use std::path::PathBuf;
+
+use anyhow::{Result, bail};
+
+use crate::cli::{RunArgs, TpkArgs};
+use crate::context::AppContext;
+use crate::device;
+use crate::tpk;
+
+pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
+    let device = device::resolve_target_device(ctx, args.device.as_deref())?;
+    ctx.info(format!("using device {} ({})", device.id, device.model));
+
+    let (package_path, packaged_manifest) = if let Some(path) = &args.tpk {
+        if !path.is_file() {
+            bail!("provided --tpk path does not exist: {}", path.display());
+        }
+        (path.clone(), None)
+    } else {
+        let tpk_args = TpkArgs {
+            arch: args.arch,
+            cargo_release: args.cargo_release,
+            no_build: args.no_build,
+            manifest: args.manifest.clone(),
+            output: args.output.clone(),
+            sign: args.sign.clone(),
+            reference: args.reference.clone(),
+            extra_dir: args.extra_dir.clone(),
+        };
+        let packaged = tpk::package_tpk(ctx, &tpk_args)?;
+        let chosen = choose_tpk(&packaged.tpk_files)?;
+        if packaged.tpk_files.len() > 1 {
+            ctx.info(format!(
+                "multiple TPK artifacts found in {}. using {}",
+                packaged.output_dir.display(),
+                chosen.display()
+            ));
+        }
+        (chosen, Some(packaged.manifest_path))
+    };
+
+    let app_id = resolve_app_id(ctx, args, packaged_manifest.as_deref())?;
+    ctx.info(format!("resolved app id: {}", app_id));
+
+    device::install_tpk_on_device(ctx, &device, &package_path)?;
+    device::launch_app_on_device(ctx, &device, &app_id)?;
+    Ok(())
+}
+
+fn choose_tpk(paths: &[PathBuf]) -> Result<PathBuf> {
+    match paths {
+        [] => bail!("no TPK artifact found"),
+        [single] => Ok(single.clone()),
+        many => Ok(many[0].clone()),
+    }
+}
+
+fn resolve_app_id(
+    ctx: &AppContext,
+    args: &RunArgs,
+    packaged_manifest: Option<&std::path::Path>,
+) -> Result<String> {
+    if let Some(app_id) = &args.app_id {
+        return Ok(app_id.clone());
+    }
+
+    if let Some(manifest) = args.manifest.as_deref() {
+        return tpk::detect_app_id_from_manifest(manifest);
+    }
+    if let Some(manifest) = packaged_manifest {
+        return tpk::detect_app_id_from_manifest(manifest);
+    }
+
+    if let Ok(default_manifest) = tpk::resolve_manifest_path(&ctx.workspace_root, None) {
+        return tpk::detect_app_id_from_manifest(&default_manifest);
+    }
+
+    bail!(
+        "unable to determine app id. pass --app-id <id> or --manifest <path-to-tizen-manifest.xml>"
+    )
+}

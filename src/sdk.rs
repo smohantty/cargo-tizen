@@ -68,6 +68,14 @@ impl TizenSdk {
         }
     }
 
+    pub fn sdb(&self) -> PathBuf {
+        if cfg!(windows) {
+            self.tools_dir().join("sdb.exe")
+        } else {
+            self.tools_dir().join("sdb")
+        }
+    }
+
     pub fn package_manager_cli(&self) -> PathBuf {
         if cfg!(windows) {
             self.root

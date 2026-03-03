@@ -17,6 +17,8 @@ Current architecture is intentionally pragmatic and CLI-first.
 - `cargo tizen build`
 - `cargo tizen rpm`
 - `cargo tizen tpk`
+- `cargo tizen devices`
+- `cargo tizen run`
 - `cargo tizen doctor`
 - `cargo tizen clean`
 
@@ -36,6 +38,7 @@ in the same patch.
 - Tool env injection: `src/tool_env.rs`
 - Sysroot/cache/providers: `src/sysroot/*`
 - Build runner: `src/cargo_runner.rs`
+- Device discovery/install/launch: `src/device.rs`, `src/run_cmd.rs`
 - RPM backend: `src/rpm/*`
 - TPK backend: `src/tpk.rs`
 - Diagnostics: `src/doctor.rs`

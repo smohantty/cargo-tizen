@@ -79,3 +79,11 @@ cargo tizen doctor -A aarch64
 ```
 
 If doctor reports missing SDK/rootstrap packages, see [install-tizen-sdk.md](install-tizen-sdk.md).
+
+## 6. Configure device connection (for `cargo tizen run`)
+
+See [configure-device.md](configure-device.md), then verify:
+
+```sh
+cargo tizen devices --all
+```

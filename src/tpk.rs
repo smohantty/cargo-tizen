@@ -11,6 +11,13 @@ use crate::context::AppContext;
 use crate::sdk::TizenSdk;
 use crate::tool_env;
 
+#[derive(Debug, Clone)]
+pub struct TpkPackageOutput {
+    pub output_dir: PathBuf,
+    pub tpk_files: Vec<PathBuf>,
+    pub manifest_path: PathBuf,
+}
+
 #[derive(Debug, Deserialize)]
 struct CargoManifest {
     package: ManifestPackage,
@@ -22,6 +29,14 @@ struct ManifestPackage {
 }
 
 pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
+    let output = package_tpk(ctx, args)?;
+    for tpk in output.tpk_files {
+        ctx.info(format!("generated TPK: {}", tpk.display()));
+    }
+    Ok(())
+}
+
+pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput> {
     let rust_target = ctx.config.rust_target_for(args.arch);
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, args.arch, None);
 
@@ -76,7 +91,7 @@ pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
         )
     })?;
 
-    let manifest_path = locate_manifest(&ctx.workspace_root, args.manifest.as_deref())?;
+    let manifest_path = resolve_manifest_path(&ctx.workspace_root, args.manifest.as_deref())?;
     let staged_manifest = stage_root.join("tizen-manifest.xml");
     fs::copy(&manifest_path, &staged_manifest).with_context(|| {
         format!(
@@ -137,10 +152,11 @@ pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
         );
     }
 
-    for tpk in tpks {
-        ctx.info(format!("generated TPK: {}", tpk.display()));
-    }
-    Ok(())
+    Ok(TpkPackageOutput {
+        output_dir,
+        tpk_files: tpks,
+        manifest_path,
+    })
 }
 
 fn manifest_package_name(path: &Path) -> Result<String> {
@@ -151,7 +167,7 @@ fn manifest_package_name(path: &Path) -> Result<String> {
     Ok(parsed.package.name)
 }
 
-fn locate_manifest(workspace_root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
+pub fn resolve_manifest_path(workspace_root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = explicit {
         if path.is_file() {
             return Ok(path.to_path_buf());
@@ -176,6 +192,31 @@ fn locate_manifest(workspace_root: &Path, explicit: Option<&Path>) -> Result<Pat
             .join("tizen")
             .join("tizen-manifest.xml")
             .display()
+    )
+}
+
+pub fn detect_app_id_from_manifest(path: &Path) -> Result<String> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("failed to read manifest {}", path.display()))?;
+
+    for tag in [
+        "ui-application",
+        "service-application",
+        "watch-application",
+        "widget-application",
+    ] {
+        if let Some(appid) = extract_attr_from_tag(&raw, tag, "appid") {
+            return Ok(appid);
+        }
+    }
+
+    if let Some(pkg) = extract_attr_from_tag(&raw, "manifest", "package") {
+        return Ok(pkg);
+    }
+
+    bail!(
+        "failed to determine app id from {}. pass --app-id explicitly",
+        path.display()
     )
 }
 
@@ -214,5 +255,102 @@ fn collect_tpks(root: &Path) -> Result<Vec<PathBuf>> {
         }
     }
 
+    files.sort();
     Ok(files)
+}
+
+fn extract_attr_from_tag(xml: &str, tag: &str, attr: &str) -> Option<String> {
+    let needle = format!("<{tag}");
+    let mut from = 0usize;
+    while from < xml.len() {
+        let rel = xml[from..].find(&needle)?;
+        let start = from + rel;
+        let end_rel = xml[start..].find('>')?;
+        let end = start + end_rel + 1;
+        let segment = &xml[start..end];
+        if let Some(value) = extract_attr(segment, attr) {
+            return Some(value);
+        }
+        from = end;
+    }
+    None
+}
+
+fn extract_attr(segment: &str, attr: &str) -> Option<String> {
+    let bytes = segment.as_bytes();
+    let needle = attr.as_bytes();
+    let mut i = 0usize;
+    while i + needle.len() < bytes.len() {
+        if &bytes[i..i + needle.len()] != needle {
+            i += 1;
+            continue;
+        }
+
+        if i > 0 {
+            let prev = bytes[i - 1] as char;
+            if prev.is_ascii_alphanumeric() || prev == '_' || prev == '-' || prev == ':' {
+                i += 1;
+                continue;
+            }
+        }
+
+        let mut j = i + needle.len();
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j >= bytes.len() || bytes[j] != b'=' {
+            i += 1;
+            continue;
+        }
+
+        j += 1;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        if j >= bytes.len() || (bytes[j] != b'"' && bytes[j] != b'\'') {
+            i += 1;
+            continue;
+        }
+        let quote = bytes[j];
+        j += 1;
+        let start = j;
+        while j < bytes.len() && bytes[j] != quote {
+            j += 1;
+        }
+        if j <= bytes.len() {
+            return Some(String::from_utf8_lossy(&bytes[start..j]).to_string());
+        }
+
+        i += 1;
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_attr, extract_attr_from_tag};
+
+    #[test]
+    fn xml_attr_parser_handles_spaces_and_quotes() {
+        let tag = r#"<ui-application appid = "org.example.app" exec='demo' />"#;
+        assert_eq!(
+            extract_attr(tag, "appid").as_deref(),
+            Some("org.example.app")
+        );
+        assert_eq!(extract_attr(tag, "exec").as_deref(), Some("demo"));
+    }
+
+    #[test]
+    fn xml_tag_lookup_finds_appid() {
+        let manifest = r#"
+<manifest package="org.example.package">
+  <ui-application appid="org.example.app" />
+</manifest>
+"#;
+        assert_eq!(
+            extract_attr_from_tag(manifest, "ui-application", "appid").as_deref(),
+            Some("org.example.app")
+        );
+    }
 }

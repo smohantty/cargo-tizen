@@ -581,88 +581,40 @@ fn collect_tpks(root: &Path) -> Result<Vec<PathBuf>> {
 }
 
 fn extract_attr_from_tag(xml: &str, tag: &str, attr: &str) -> Option<String> {
-    let needle = format!("<{tag}");
-    let mut from = 0usize;
-    while from < xml.len() {
-        let rel = xml[from..].find(&needle)?;
-        let start = from + rel;
-        let end_rel = xml[start..].find('>')?;
-        let end = start + end_rel + 1;
-        let segment = &xml[start..end];
-        if let Some(value) = extract_attr(segment, attr) {
-            return Some(value);
+    let doc = match roxmltree::Document::parse(xml) {
+        Ok(doc) => doc,
+        Err(e) => {
+            eprintln!("warning: failed to parse manifest XML: {e}");
+            return None;
         }
-        from = end;
-    }
-    None
-}
-
-fn extract_attr(segment: &str, attr: &str) -> Option<String> {
-    let bytes = segment.as_bytes();
-    let needle = attr.as_bytes();
-    let mut i = 0usize;
-    while i + needle.len() < bytes.len() {
-        if &bytes[i..i + needle.len()] != needle {
-            i += 1;
-            continue;
-        }
-
-        if i > 0 {
-            let prev = bytes[i - 1] as char;
-            if prev.is_ascii_alphanumeric() || prev == '_' || prev == '-' || prev == ':' {
-                i += 1;
-                continue;
-            }
-        }
-
-        let mut j = i + needle.len();
-        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-            j += 1;
-        }
-        if j >= bytes.len() || bytes[j] != b'=' {
-            i += 1;
-            continue;
-        }
-
-        j += 1;
-        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-            j += 1;
-        }
-        if j >= bytes.len() || (bytes[j] != b'"' && bytes[j] != b'\'') {
-            i += 1;
-            continue;
-        }
-        let quote = bytes[j];
-        j += 1;
-        let start = j;
-        while j < bytes.len() && bytes[j] != quote {
-            j += 1;
-        }
-        if j <= bytes.len() {
-            return Some(String::from_utf8_lossy(&bytes[start..j]).to_string());
-        }
-
-        i += 1;
-    }
-
-    None
+    };
+    doc.descendants()
+        .find(|n| n.tag_name().name() == tag)
+        .and_then(|n| n.attribute(attr))
+        .map(String::from)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        ManifestPackage, extract_attr, extract_attr_from_tag, normalize_manifest_version,
+        ManifestPackage, extract_attr_from_tag, normalize_manifest_version,
         render_default_manifest, sanitize_identifier_segment, tizen_template_profile_name,
     };
 
     #[test]
     fn xml_attr_parser_handles_spaces_and_quotes() {
-        let tag = r#"<ui-application appid = "org.example.app" exec='demo' />"#;
+        // roxmltree normalizes whitespace around `=` and handles both quote
+        // styles, so we exercise the same scenarios the old hand-rolled
+        // parser was tested against.
+        let xml = r#"<?xml version="1.0"?><manifest><ui-application appid = "org.example.app" exec='demo' /></manifest>"#;
         assert_eq!(
-            extract_attr(tag, "appid").as_deref(),
+            extract_attr_from_tag(xml, "ui-application", "appid").as_deref(),
             Some("org.example.app")
         );
-        assert_eq!(extract_attr(tag, "exec").as_deref(), Some("demo"));
+        assert_eq!(
+            extract_attr_from_tag(xml, "ui-application", "exec").as_deref(),
+            Some("demo")
+        );
     }
 
     #[test]

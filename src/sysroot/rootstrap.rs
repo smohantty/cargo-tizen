@@ -496,11 +496,34 @@ fn copy_symlink(source: &Path, target: &Path) -> Result<()> {
 
 #[cfg(not(unix))]
 fn copy_symlink(source: &Path, target: &Path) -> Result<()> {
-    let resolved = fs::canonicalize(source)
-        .with_context(|| format!("failed to resolve symlink {}", source.display()))?;
+    let link_target = fs::read_link(source)
+        .with_context(|| format!("failed to read symlink {}", source.display()))?;
+    let resolved = if link_target.is_relative() {
+        source.parent().unwrap_or(source).join(&link_target)
+    } else {
+        link_target
+    };
+    if !resolved.exists() {
+        // Dangling symlink — skip but warn (matches Unix behavior where we
+        // recreate the original link, which may also dangle).
+        eprintln!(
+            "warning: skipping dangling symlink {} -> {}",
+            source.display(),
+            resolved.display()
+        );
+        return Ok(());
+    }
     if resolved.is_dir() {
         copy_dir_recursive(&resolved, target)
     } else {
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "failed to create parent directory while copying symlink target {}",
+                    target.display()
+                )
+            })?;
+        }
         fs::copy(&resolved, target).with_context(|| {
             format!(
                 "failed to copy symlink target {} -> {}",

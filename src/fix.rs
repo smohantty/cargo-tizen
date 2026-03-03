@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::IsTerminal;
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
@@ -109,12 +110,17 @@ fn warn_missing_rpmbuild() {
         return;
     }
 
+    let use_color = color_output_enabled();
     eprintln!("[warn] missing tool: rpmbuild [required only for `cargo tizen rpm`]");
     if let Some(hint) = rpmbuild_install_hint_from_os_release() {
-        eprintln!("[warn] install with: {hint}");
+        eprintln!(
+            "[warn] install with: {}",
+            colorize(use_color, "1;36", &hint)
+        );
     } else {
         eprintln!(
-            "[warn] install your distro package that provides `rpmbuild` (commonly `rpm-build`)"
+            "[warn] install your distro package that provides {}",
+            colorize(use_color, "1;36", "`rpmbuild` (commonly `rpm-build`)")
         );
     }
 }
@@ -178,6 +184,17 @@ fn parse_os_release(raw: &str) -> std::collections::HashMap<String, String> {
         }
     }
     values
+}
+
+fn color_output_enabled() -> bool {
+    std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+}
+
+fn colorize(enabled: bool, ansi_code: &str, value: &str) -> String {
+    if enabled {
+        return format!("\x1b[{}m{}\x1b[0m", ansi_code, value);
+    }
+    value.to_string()
 }
 
 #[cfg(test)]

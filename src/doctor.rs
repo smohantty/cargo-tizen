@@ -27,7 +27,10 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
     if which::which("rpmbuild").is_ok() {
         ctx.info("[ok] tool found: rpmbuild");
     } else {
-        failures.push("missing tool: rpmbuild (install package `rpm-build`)".to_string());
+        warnings.push(
+            "missing tool: rpmbuild (install package `rpm-build`) [required only for `cargo tizen rpm`]"
+                .to_string(),
+        );
     }
 
     let sdk = TizenSdk::locate(ctx.config.sdk_root().as_deref());
@@ -65,11 +68,6 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
     for arch in arches {
         let toolchain = resolve_toolchain(ctx, arch);
         let linker = toolchain.linker;
-        if let Err(err) = verify_c_compiler_sanity(&toolchain.cc, None) {
-            failures.push(format!("c compiler sanity check failed for arch {}: {}", arch, err));
-        } else {
-            ctx.info(format!("[ok] c compiler sanity check passed: {}", toolchain.cc));
-        }
 
         if binary_exists(&linker) {
             ctx.info(format!("[ok] linker found: {linker}"));
@@ -125,10 +123,23 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             }
         }
 
-        if let Err(err) = sysroot::resolve_for_build(ctx, arch) {
-            failures.push(format!("sysroot not ready for arch {}: {}", arch, err));
-        } else {
-            ctx.info(format!("[ok] sysroot cache ready for arch {}", arch));
+        match sysroot::resolve_for_build(ctx, arch) {
+            Ok(resolved) => {
+                ctx.info(format!("[ok] sysroot cache ready for arch {}", arch));
+                if let Err(err) = verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir))
+                {
+                    failures.push(format!(
+                        "c compiler sanity check failed for arch {}: {}",
+                        arch, err
+                    ));
+                } else {
+                    ctx.info(format!(
+                        "[ok] c compiler sanity check passed: {}",
+                        toolchain.cc
+                    ));
+                }
+            }
+            Err(err) => failures.push(format!("sysroot not ready for arch {}: {}", arch, err)),
         }
     }
 

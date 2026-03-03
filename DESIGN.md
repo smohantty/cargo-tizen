@@ -184,7 +184,7 @@ cargo tizen doctor [-A <armv7l|aarch64>]
 ```
 
 Checks:
-- Required executables (`cargo`, `rustc`, `rustup`, linker, `rpmbuild`).
+- Required executables (`cargo`, `rustc`, `rustup`, linker; `rpmbuild` reported as warning unless RPM packaging is needed).
 - Tizen SDK detection (`TIZEN_SDK`, `sdb`, extension/CLI default locations).
 - Rust targets installed (both `armv7l` and `aarch64` when `-A` is omitted).
 - Rootstrap availability for selected profile/version/arch.

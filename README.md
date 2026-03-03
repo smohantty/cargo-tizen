@@ -42,7 +42,7 @@ When upstream design/commands around rootstrap resolution, Tizen SDK integration
 Required tools:
 - Rust toolchain (`cargo`, `rustc`, `rustup`)
 - Rust target stdlib for each Tizen arch (`rustup target add armv7-unknown-linux-gnueabihf`, `rustup target add aarch64-unknown-linux-gnu`)
-- `rpmbuild` (usually from `rpm-build`)
+- `rpmbuild` (usually from `rpm-build`, required only for `cargo tizen rpm`)
 - Tizen SDK with Native CLI and matching rootstrap packages for your target/profile/version
 
 Important:

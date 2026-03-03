@@ -108,6 +108,7 @@ Notes:
 
 - `cargo tizen doctor` checks both `armv7l` and `aarch64`.
 - `cargo tizen doctor -A <arch>` checks one architecture.
+- Missing `rpmbuild` is reported as a warning (it is required only for `cargo tizen rpm`).
 
 ## `fix`
 

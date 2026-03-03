@@ -218,7 +218,21 @@ fn discover_installed_rootstrap_options(
 }
 
 fn profile_matches(requested_profile: &str, option: &InstalledRootstrapOption) -> bool {
-    canonical_profile_name(requested_profile, &option.platform_version) == option.profile
+    let primary = canonical_profile_name(requested_profile, &option.platform_version);
+    if primary == option.profile {
+        return true;
+    }
+
+    if primary != "tv-samsung" {
+        return false;
+    }
+
+    let fallback = if version_ge(&option.platform_version, 8, 0) {
+        "tizen"
+    } else {
+        "iot-headed"
+    };
+    option.profile == fallback
 }
 
 fn canonical_profile_name(profile: &str, platform_version: &str) -> String {
@@ -502,7 +516,10 @@ mod tests {
     use crate::arch::Arch;
     use crate::sysroot::provider::SetupRequest;
 
-    use super::{InstalledRootstrapOption, candidate_ids, canonical_profile, select_best_option};
+    use super::{
+        InstalledRootstrapOption, candidate_ids, canonical_profile, profile_matches,
+        select_best_option,
+    };
 
     #[test]
     fn profile_mapping_for_common_pre_8_0() {
@@ -544,5 +561,25 @@ mod tests {
         ];
         let selected = select_best_option(&options).expect("one option should be selected");
         assert_eq!(selected.platform_version, "10.0");
+    }
+
+    #[test]
+    fn tv_profile_matches_tizen_fallback_post_8_0() {
+        let option = InstalledRootstrapOption {
+            platform_version: "10.0".to_string(),
+            profile: "tizen".to_string(),
+            rootstrap_id: "tizen-10.0-device.core".to_string(),
+        };
+        assert!(profile_matches("tv", &option));
+    }
+
+    #[test]
+    fn tv_profile_matches_iot_headed_fallback_pre_8_0() {
+        let option = InstalledRootstrapOption {
+            platform_version: "6.0".to_string(),
+            profile: "iot-headed".to_string(),
+            rootstrap_id: "iot-headed-6.0-device.core".to_string(),
+        };
+        assert!(profile_matches("tv", &option));
     }
 }

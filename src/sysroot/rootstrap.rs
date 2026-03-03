@@ -55,7 +55,10 @@ impl SysrootProvider for RootstrapProvider {
 }
 
 pub const MISSING_SDK_GUIDANCE: &str = "unable to locate Tizen SDK.\n\
-Install Tizen SDK first (recommended: VS Code Extension for Tizen / Tizen SDK from samsungtizenos.com/tools-download), then configure one of:\n\
+Install Tizen SDK first:\n\
+- tools page: https://samsungtizenos.com/tools-download/\n\
+- direct SDK installer index: https://download.tizen.org/sdk/Installer/tizen-sdk_10.0/\n\
+Then configure one of:\n\
 - environment: TIZEN_SDK=/path/to/sdk\n\
 - project/user config: [sdk].root = \"/path/to/sdk\"\n\
 - setup flag: cargo tizen setup ... --sdk-root /path/to/sdk";

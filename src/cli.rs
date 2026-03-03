@@ -40,7 +40,11 @@ pub enum Command {
 
 #[derive(Debug, Clone, Args)]
 pub struct SetupArgs {
-    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    #[arg(
+        short = 'A',
+        long,
+        help = "Target architecture (auto-detected when omitted)"
+    )]
     pub arch: Option<Arch>,
 
     #[arg(long)]
@@ -61,7 +65,11 @@ pub struct SetupArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct BuildArgs {
-    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    #[arg(
+        short = 'A',
+        long,
+        help = "Target architecture (auto-detected when omitted)"
+    )]
     pub arch: Option<Arch>,
 
     #[arg(long)]
@@ -76,7 +84,11 @@ pub struct BuildArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct RpmArgs {
-    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    #[arg(
+        short = 'A',
+        long,
+        help = "Target architecture (auto-detected when omitted)"
+    )]
     pub arch: Option<Arch>,
 
     #[arg(long, default_value = "1")]
@@ -97,7 +109,11 @@ pub struct RpmArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct TpkArgs {
-    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    #[arg(
+        short = 'A',
+        long,
+        help = "Target architecture (auto-detected when omitted)"
+    )]
     pub arch: Option<Arch>,
 
     #[arg(long)]
@@ -130,7 +146,11 @@ pub struct DevicesArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct RunArgs {
-    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    #[arg(
+        short = 'A',
+        long,
+        help = "Target architecture (auto-detected when omitted)"
+    )]
     pub arch: Option<Arch>,
 
     #[arg(short = 'd', long)]

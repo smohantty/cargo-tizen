@@ -4,9 +4,9 @@ use anyhow::{Context, Result, bail};
 
 use crate::arch::Arch;
 use crate::cli::FixArgs;
+use crate::cli::SetupArgs;
 use crate::context::AppContext;
 use crate::sysroot;
-use crate::cli::SetupArgs;
 use crate::tool_env::ensure_rust_target_installed;
 
 pub fn run_fix(ctx: &AppContext, args: &FixArgs) -> Result<()> {
@@ -25,7 +25,10 @@ pub fn run_fix(ctx: &AppContext, args: &FixArgs) -> Result<()> {
     for arch in arches {
         let rust_target = ctx.config.rust_target_for(arch);
         if ensure_rust_target_installed(&rust_target)? {
-            ctx.info(format!("[ok] rust target already installed for {}: {}", arch, rust_target));
+            ctx.info(format!(
+                "[ok] rust target already installed for {}: {}",
+                arch, rust_target
+            ));
         } else {
             missing_targets.push((arch, rust_target));
         }

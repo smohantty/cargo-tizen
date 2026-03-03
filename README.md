@@ -147,6 +147,7 @@ cargo tizen doctor -A aarch64
 Notes:
 - `cargo tizen doctor` (without `-A`) checks both `armv7l` and `aarch64`.
 - `cargo tizen doctor -A <arch>` checks a specific architecture.
+- doctor prints installed SDK `--platform-version/--profile` options per arch, marks `[selected]` target used by default, and shows `[cached]` vs `[not-cached]`.
 
 ### 2.1 Fix missing Rust targets
 

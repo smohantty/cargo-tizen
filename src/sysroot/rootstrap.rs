@@ -123,11 +123,7 @@ pub fn select_installed_profile_platform(
     requested_profile: Option<&str>,
     requested_platform: Option<&str>,
 ) -> Result<Option<InstalledRootstrapOption>> {
-    let Some(sdk) = TizenSdk::locate(sdk_root_override) else {
-        return Ok(None);
-    };
-
-    let options = discover_installed_rootstrap_options(&sdk, arch)?;
+    let options = installed_rootstrap_options(sdk_root_override, arch)?;
     if options.is_empty() {
         return Ok(None);
     }
@@ -157,6 +153,16 @@ pub fn select_installed_profile_platform(
     }
 
     Ok(select_best_option(&filtered))
+}
+
+pub fn installed_rootstrap_options(
+    sdk_root_override: Option<&Path>,
+    arch: Arch,
+) -> Result<Vec<InstalledRootstrapOption>> {
+    let Some(sdk) = TizenSdk::locate(sdk_root_override) else {
+        return Ok(Vec::new());
+    };
+    discover_installed_rootstrap_options(&sdk, arch)
 }
 
 fn discover_installed_rootstrap_options(
@@ -257,15 +263,12 @@ fn canonical_profile_name(profile: &str, platform_version: &str) -> String {
 }
 
 fn select_best_option(options: &[InstalledRootstrapOption]) -> Option<InstalledRootstrapOption> {
-    options
-        .iter()
-        .cloned()
-        .max_by(|a, b| {
-            version_sort_key(&a.platform_version)
-                .cmp(&version_sort_key(&b.platform_version))
-                .then_with(|| profile_rank(&b.profile).cmp(&profile_rank(&a.profile)))
-                .then_with(|| b.profile.cmp(&a.profile))
-        })
+    options.iter().cloned().max_by(|a, b| {
+        version_sort_key(&a.platform_version)
+            .cmp(&version_sort_key(&b.platform_version))
+            .then_with(|| profile_rank(&b.profile).cmp(&profile_rank(&a.profile)))
+            .then_with(|| b.profile.cmp(&a.profile))
+    })
 }
 
 fn profile_rank(profile: &str) -> usize {

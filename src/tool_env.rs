@@ -65,15 +65,9 @@ impl ToolEnv {
         env.set(format!("AR_{}", target_key), &toolchain.ar);
         env.set(format!("AR_{}", target_key_underscore), &toolchain.ar);
         env.set(format!("CFLAGS_{}", target_key), &cflags_value);
-        env.set(
-            format!("CFLAGS_{}", target_key_underscore),
-            &cflags_value,
-        );
+        env.set(format!("CFLAGS_{}", target_key_underscore), &cflags_value);
         env.set(format!("CXXFLAGS_{}", target_key), &cflags_value);
-        env.set(
-            format!("CXXFLAGS_{}", target_key_underscore),
-            &cflags_value,
-        );
+        env.set(format!("CXXFLAGS_{}", target_key_underscore), &cflags_value);
         env.set("USER_CPP_OPTS", "-std=c++17");
         configure_openssl_env(&mut env, &env_key, sysroot_dir);
 

@@ -83,10 +83,7 @@ fn detect_arch_from_connected_devices(ctx: &AppContext) -> DeviceArchSelection {
     let devices = match device::discover_devices(ctx) {
         Ok(devices) => devices,
         Err(err) => {
-            ctx.debug(format!(
-                "arch auto-detection via devices skipped: {}",
-                err
-            ));
+            ctx.debug(format!("arch auto-detection via devices skipped: {}", err));
             return DeviceArchSelection::None;
         }
     };

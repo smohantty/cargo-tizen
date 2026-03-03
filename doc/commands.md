@@ -108,6 +108,7 @@ Notes:
 
 - `cargo tizen doctor` checks both `armv7l` and `aarch64`.
 - `cargo tizen doctor -A <arch>` checks one architecture.
+- For rootstrap provider, doctor lists installed SDK target options (`--platform-version/--profile`) per arch, marks current `[selected]`, and shows `[cached]`/`[not-cached]`.
 - Missing `rpmbuild` is reported as a warning (it is required only for `cargo tizen rpm`).
 
 ## `fix`

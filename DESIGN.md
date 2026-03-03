@@ -188,6 +188,7 @@ Checks:
 - Tizen SDK detection (`TIZEN_SDK`, `sdb`, extension/CLI default locations).
 - Rust targets installed (both `armv7l` and `aarch64` when `-A` is omitted).
 - Rootstrap availability for selected profile/version/arch.
+- Installed SDK rootstrap targets listed per arch (`--platform-version/--profile`) with selected and cache-ready status.
 - Sysroot cache availability and validity.
 - Config consistency.
 

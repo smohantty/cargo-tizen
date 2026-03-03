@@ -50,7 +50,11 @@ pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
     Ok(())
 }
 
-fn resolve_run_arch(ctx: &AppContext, args: &RunArgs, device: &device::TizenDevice) -> Result<Arch> {
+fn resolve_run_arch(
+    ctx: &AppContext,
+    args: &RunArgs,
+    device: &device::TizenDevice,
+) -> Result<Arch> {
     if let Some(arch) = args.arch {
         return Ok(arch);
     }

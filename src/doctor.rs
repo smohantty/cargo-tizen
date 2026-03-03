@@ -100,12 +100,59 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         }
 
         if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
-            let (profile, platform_version) = sysroot::resolve_profile_platform_for_arch(ctx, arch)?;
+            let sdk_root_override = ctx.config.sdk_root();
+            let (profile, platform_version) =
+                sysroot::resolve_profile_platform_for_arch(ctx, arch)?;
+
+            match rootstrap::installed_rootstrap_options(sdk_root_override.as_deref(), arch) {
+                Ok(options) if options.is_empty() => warnings.push(format!(
+                    "no installed rootstrap targets discovered in SDK for arch {}",
+                    arch
+                )),
+                Ok(options) => {
+                    ctx.info(format!(
+                        "[ok] installed rootstrap targets for arch {}:",
+                        arch
+                    ));
+                    for option in options {
+                        let is_selected = option.profile == profile
+                            && option.platform_version == platform_version;
+                        match sysroot::cache_ready_for_target(
+                            ctx,
+                            arch,
+                            &option.profile,
+                            &option.platform_version,
+                        ) {
+                            Ok(cache_ready) => {
+                                let selected_tag = if is_selected { " [selected]" } else { "" };
+                                let cache_tag = if cache_ready {
+                                    " [cached]"
+                                } else {
+                                    " [not-cached]"
+                                };
+                                ctx.info(format!(
+                                    "  - --platform-version {} --profile {}{}{}",
+                                    option.platform_version, option.profile, selected_tag, cache_tag
+                                ));
+                            }
+                            Err(err) => failures.push(format!(
+                                "failed to inspect cache status for arch {} profile={} platform-version={}: {}",
+                                arch, option.profile, option.platform_version, err
+                            )),
+                        }
+                    }
+                }
+                Err(err) => failures.push(format!(
+                    "failed to discover installed rootstrap targets for arch {}: {}",
+                    arch, err
+                )),
+            }
+
             let req = SetupRequest {
                 arch,
                 profile,
                 platform_version,
-                sdk_root_override: ctx.config.sdk_root(),
+                sdk_root_override,
             };
             match rootstrap::resolve_rootstrap(&req) {
                 Ok(resolved) => {
@@ -126,7 +173,8 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         match sysroot::resolve_for_build(ctx, arch) {
             Ok(resolved) => {
                 ctx.info(format!("[ok] sysroot cache ready for arch {}", arch));
-                if let Err(err) = verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir))
+                if let Err(err) =
+                    verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir))
                 {
                     failures.push(format!(
                         "c compiler sanity check failed for arch {}: {}",

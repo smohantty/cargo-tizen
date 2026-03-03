@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
+use crate::arch::Arch;
 use crate::sdk::{SdkFlavor, TizenSdk};
 use crate::sysroot::provider::{ProviderKind, SetupRequest, SysrootProvider};
 
@@ -14,6 +15,13 @@ pub struct ResolvedRootstrap {
     pub profile: String,
     pub root_path: PathBuf,
     pub used_fallback: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledRootstrapOption {
+    pub platform_version: String,
+    pub profile: String,
+    pub rootstrap_id: String,
 }
 
 impl SysrootProvider for RootstrapProvider {
@@ -109,6 +117,175 @@ pub fn resolve_rootstrap(req: &SetupRequest) -> Result<ResolvedRootstrap> {
     )
 }
 
+pub fn select_installed_profile_platform(
+    sdk_root_override: Option<&Path>,
+    arch: Arch,
+    requested_profile: Option<&str>,
+    requested_platform: Option<&str>,
+) -> Result<Option<InstalledRootstrapOption>> {
+    let Some(sdk) = TizenSdk::locate(sdk_root_override) else {
+        return Ok(None);
+    };
+
+    let options = discover_installed_rootstrap_options(&sdk, arch)?;
+    if options.is_empty() {
+        return Ok(None);
+    }
+
+    let mut filtered = options.clone();
+    if let Some(platform_version) = requested_platform {
+        filtered.retain(|option| option.platform_version == platform_version);
+    }
+    if let Some(profile) = requested_profile {
+        filtered.retain(|option| profile_matches(profile, option));
+    }
+
+    if filtered.is_empty() && (requested_profile.is_some() || requested_platform.is_some()) {
+        let mut reason = String::from("requested rootstrap target is not installed");
+        if let Some(profile) = requested_profile {
+            reason.push_str(&format!(", profile={profile}"));
+        }
+        if let Some(platform_version) = requested_platform {
+            reason.push_str(&format!(", platform-version={platform_version}"));
+        }
+        reason.push_str(&format!(", arch={arch}.\n"));
+        reason.push_str(&format!(
+            "installed options in SDK:\n{}",
+            format_installed_options(&options)
+        ));
+        bail!("{reason}");
+    }
+
+    Ok(select_best_option(&filtered))
+}
+
+fn discover_installed_rootstrap_options(
+    sdk: &TizenSdk,
+    arch: Arch,
+) -> Result<Vec<InstalledRootstrapOption>> {
+    let mut options = Vec::new();
+    let rootstrap_type = arch.rootstrap_type();
+
+    let platforms_dir = sdk.platforms_dir();
+    if !platforms_dir.is_dir() {
+        return Ok(options);
+    }
+
+    for platform_entry in fs::read_dir(&platforms_dir)
+        .with_context(|| format!("failed to read {}", platforms_dir.display()))?
+    {
+        let platform_entry = platform_entry?;
+        let platform_path = platform_entry.path();
+        if !platform_path.is_dir() {
+            continue;
+        }
+
+        let platform_name = platform_entry.file_name().to_string_lossy().to_string();
+        let Some(platform_version) = platform_name.strip_prefix("tizen-") else {
+            continue;
+        };
+
+        for profile_entry in fs::read_dir(&platform_path)
+            .with_context(|| format!("failed to read {}", platform_path.display()))?
+        {
+            let profile_entry = profile_entry?;
+            let profile_path = profile_entry.path();
+            if !profile_path.is_dir() {
+                continue;
+            }
+
+            let profile = profile_entry.file_name().to_string_lossy().to_string();
+            let id = rootstrap_id(&profile, platform_version, rootstrap_type);
+            let candidate = profile_path.join("rootstraps").join(&id);
+            if candidate.is_dir() {
+                options.push(InstalledRootstrapOption {
+                    platform_version: platform_version.to_string(),
+                    profile,
+                    rootstrap_id: id,
+                });
+            }
+        }
+    }
+
+    options.sort_by(|a, b| {
+        version_sort_key(&b.platform_version)
+            .cmp(&version_sort_key(&a.platform_version))
+            .then_with(|| profile_rank(&a.profile).cmp(&profile_rank(&b.profile)))
+            .then_with(|| a.profile.cmp(&b.profile))
+    });
+    options.dedup_by(|a, b| a.platform_version == b.platform_version && a.profile == b.profile);
+    Ok(options)
+}
+
+fn profile_matches(requested_profile: &str, option: &InstalledRootstrapOption) -> bool {
+    canonical_profile_name(requested_profile, &option.platform_version) == option.profile
+}
+
+fn canonical_profile_name(profile: &str, platform_version: &str) -> String {
+    let requested = profile.trim().to_ascii_lowercase();
+
+    if requested == "common" {
+        if version_ge(platform_version, 8, 0) {
+            return "tizen".to_string();
+        }
+        return "iot-headed".to_string();
+    }
+
+    if requested == "tv" {
+        return "tv-samsung".to_string();
+    }
+
+    if requested == "mobile" && version_ge(platform_version, 8, 0) {
+        return "tizen".to_string();
+    }
+
+    requested
+}
+
+fn select_best_option(options: &[InstalledRootstrapOption]) -> Option<InstalledRootstrapOption> {
+    options
+        .iter()
+        .cloned()
+        .max_by(|a, b| {
+            version_sort_key(&a.platform_version)
+                .cmp(&version_sort_key(&b.platform_version))
+                .then_with(|| profile_rank(&b.profile).cmp(&profile_rank(&a.profile)))
+                .then_with(|| b.profile.cmp(&a.profile))
+        })
+}
+
+fn profile_rank(profile: &str) -> usize {
+    match profile {
+        "tizen" => 0,
+        "mobile" => 1,
+        "tv-samsung" => 2,
+        "wearable" => 3,
+        "iot-headed" => 4,
+        _ => 10,
+    }
+}
+
+fn version_sort_key(version: &str) -> (u64, u64) {
+    parse_version(version)
+}
+
+fn format_installed_options(options: &[InstalledRootstrapOption]) -> String {
+    if options.is_empty() {
+        return "  <none>".to_string();
+    }
+
+    options
+        .iter()
+        .map(|option| {
+            format!(
+                "  --platform-version {} --profile {}",
+                option.platform_version, option.profile
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn candidate_ids(req: &SetupRequest) -> (String, Option<String>) {
     let profile = canonical_profile(req);
     let primary = rootstrap_id(&profile, &req.platform_version, req.arch.rootstrap_type());
@@ -123,24 +300,7 @@ fn candidate_ids(req: &SetupRequest) -> (String, Option<String>) {
 }
 
 fn canonical_profile(req: &SetupRequest) -> String {
-    let requested = req.profile.trim().to_ascii_lowercase();
-
-    if requested == "common" {
-        if version_ge(&req.platform_version, 8, 0) {
-            return "tizen".to_string();
-        }
-        return "iot-headed".to_string();
-    }
-
-    if requested == "tv" {
-        return "tv-samsung".to_string();
-    }
-
-    if requested == "mobile" && version_ge(&req.platform_version, 8, 0) {
-        return "tizen".to_string();
-    }
-
-    requested
+    canonical_profile_name(&req.profile, &req.platform_version)
 }
 
 fn fallback_profile(req: &SetupRequest) -> Option<String> {
@@ -187,6 +347,14 @@ fn missing_rootstrap_message(
             "fallback rootstrap {fallback_id} was not found at {}\n",
             fallback_path.display()
         ));
+    }
+
+    if let Ok(options) = discover_installed_rootstrap_options(sdk, req.arch) {
+        if !options.is_empty() {
+            message.push_str("\ninstalled options for this arch:\n");
+            message.push_str(&format_installed_options(&options));
+            message.push('\n');
+        }
     }
 
     match sdk.flavor() {
@@ -334,7 +502,7 @@ mod tests {
     use crate::arch::Arch;
     use crate::sysroot::provider::SetupRequest;
 
-    use super::{candidate_ids, canonical_profile};
+    use super::{InstalledRootstrapOption, candidate_ids, canonical_profile, select_best_option};
 
     #[test]
     fn profile_mapping_for_common_pre_8_0() {
@@ -358,5 +526,23 @@ mod tests {
         let (primary, fallback) = candidate_ids(&req);
         assert_eq!(primary, "tizen-8.0-device64.core");
         assert!(fallback.is_none());
+    }
+
+    #[test]
+    fn select_best_prefers_newer_platform_version() {
+        let options = vec![
+            InstalledRootstrapOption {
+                platform_version: "9.0".to_string(),
+                profile: "tizen".to_string(),
+                rootstrap_id: "tizen-9.0-device.core".to_string(),
+            },
+            InstalledRootstrapOption {
+                platform_version: "10.0".to_string(),
+                profile: "tizen".to_string(),
+                rootstrap_id: "tizen-10.0-device.core".to_string(),
+            },
+        ];
+        let selected = select_best_option(&options).expect("one option should be selected");
+        assert_eq!(selected.platform_version, "10.0");
     }
 }

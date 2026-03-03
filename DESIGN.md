@@ -22,7 +22,7 @@ Upstream adaptation reference:
 ## 1.1 Implementation Status (Current)
 
 Implemented:
-- CLI scaffold for `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `clean`.
+- CLI scaffold for `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `fix`, `clean`.
 - `ArchMap` defaults for Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
 - Rootstrap-based sysroot provisioning from installed Tizen SDK rootstraps.
 - Rootstrap fallback policy for missing `tv-samsung` rootstraps.
@@ -88,26 +88,31 @@ Global options:
 ## 4.2 `setup`
 
 ```bash
-cargo tizen setup -A <armv7l|aarch64> [--profile <name>] [--platform-version <ver>] [--provider <rootstrap|repo>] [--sdk-root <path>]
+cargo tizen setup [-A <armv7l|aarch64>] [--profile <name>] [--platform-version <ver>] [--provider <rootstrap|repo>] [--sdk-root <path>]
 ```
 
 Purpose:
 - Acquire/generate sysroot.
 - Validate sysroot completeness.
 - Save to cache for reuse.
+- Auto-select installed profile/platform when not explicitly provided.
 
 Options:
-- `-A, --arch`: required.
+- `-A, --arch`: optional (auto-detected when omitted).
 - `--profile`: default from config (for example `mobile`).
 - `--platform-version`: default from config.
 - `--provider`: sysroot acquisition strategy.
 - `--sdk-root`: per-invocation Tizen SDK root override.
 - `--force`: refresh cached entry even if valid.
 
+Selection behavior:
+- For rootstrap provider, when profile/version are omitted, `cargo-tizen` scans installed SDK rootstraps for the selected arch and chooses a best installed match.
+- If a requested profile/version is not installed, error output includes installed `--platform-version/--profile` pairs.
+
 ## 4.3 `build`
 
 ```bash
-cargo tizen build -A <armv7l|aarch64> [--release] [--target-dir <path>] [-- <cargo_build_args...>]
+cargo tizen build [-A <armv7l|aarch64>] [--release] [--target-dir <path>] [-- <cargo_build_args...>]
 ```
 
 Purpose:
@@ -123,7 +128,7 @@ Behavior:
 ## 4.4 `rpm`
 
 ```bash
-cargo tizen rpm -A <armv7l|aarch64> [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]
+cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]
 ```
 
 Purpose:
@@ -153,7 +158,7 @@ Behavior:
 ## 4.6 `run`
 
 ```bash
-cargo tizen run -A <armv7l|aarch64> [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]
+cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]
 ```
 
 Purpose:
@@ -181,12 +186,26 @@ cargo tizen doctor [-A <armv7l|aarch64>]
 Checks:
 - Required executables (`cargo`, `rustc`, `rustup`, linker, `rpmbuild`).
 - Tizen SDK detection (`TIZEN_SDK`, `sdb`, extension/CLI default locations).
-- Rust targets installed.
+- Rust targets installed (both `armv7l` and `aarch64` when `-A` is omitted).
 - Rootstrap availability for selected profile/version/arch.
 - Sysroot cache availability and validity.
 - Config consistency.
 
-## 4.8 `clean`
+## 4.8 `fix`
+
+```bash
+cargo tizen fix [-A <armv7l|aarch64>]
+```
+
+Purpose:
+- Install missing Rust targets and prepare sysroot cache for cross-builds.
+
+Behavior:
+- Without `-A`, checks both supported architectures and runs `rustup target add <triple>` for any missing target.
+- With `-A`, applies the same flow for one selected architecture.
+- Ensures sysroot cache is ready for selected architectures (runs `setup` defaults when missing).
+
+## 4.9 `clean`
 
 ```bash
 cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]
@@ -195,10 +214,10 @@ cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]
 Purpose:
 - Remove build outputs and/or cached sysroots.
 
-## 4.9 `tpk`
+## 4.10 `tpk`
 
 ```bash
-cargo tizen tpk -A <armv7l|aarch64> [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]
+cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]
 ```
 
 Purpose:
@@ -208,6 +227,16 @@ Behavior:
 - Stages binary and `tizen-manifest.xml`.
 - Invokes `tizen package -t tpk`.
 - Emits generated `.tpk` path(s).
+
+## 4.11 Architecture Auto-Detection
+
+When `-A/--arch` is omitted for `setup`, `build`, `rpm`, `tpk`, and `run`, architecture is resolved in this order:
+1. `[default].arch` in config.
+2. Exactly one supported `[arch.*]` entry in config.
+3. Exactly one supported architecture across connected ready Tizen devices.
+4. Otherwise fail with an explicit "pass `-A/--arch`" error.
+
+For `run`, when packaging from source (no `--tpk`), the selected device `cpu_arch` is preferred before the shared fallback chain.
 
 
 ## 5. Configuration Model
@@ -225,8 +254,9 @@ Example:
 
 ```toml
 [default]
+arch = "armv7l"
 profile = "mobile"
-platform_version = "9.0"
+platform_version = "10.0"
 provider = "rootstrap"
 
 [arch.armv7l]
@@ -348,11 +378,12 @@ Fallback policy:
 
 Given `cargo tizen build -A armv7l`:
 1. Load and merge configuration.
-2. Map arch -> Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
+2. Resolve arch (explicit `-A` or auto-detection), then map arch -> Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
 3. Ensure sysroot exists and validates (auto-run setup if cache is missing/invalid).
 4. Ensure Rust target is installed (with `rustup target add` guidance when missing).
 5. Resolve toolchain binaries (linker, cc, cxx, ar) from config, PATH, or SDK tool directories.
-6. Construct execution environment via `ToolEnv`:
+6. Run C compiler sanity probe (`cc -E -x c -`) to fail fast on broken cross-toolchains.
+7. Construct execution environment via `ToolEnv`:
    - `CC_<target>`
    - `CXX_<target>`
    - `AR_<target>`
@@ -363,8 +394,14 @@ Given `cargo tizen build -A armv7l`:
    - `PKG_CONFIG_ALLOW_CROSS=1`
    - `PATH` augmentation with SDK/toolchain directories
    - `USER_CPP_OPTS=-std=c++17`
-7. Run `cargo build --target <triple> --target-dir target/tizen/<arch>/cargo ...`.
-8. Stream build output and return command success/failure.
+   - OpenSSL fallback env (`OPENSSL_*`) when sysroot has `libssl`/`libcrypto` but no `openssl.pc`
+8. Run `cargo build --target <triple> --target-dir target/tizen/<arch>/cargo ...`.
+9. Stream build output and return command success/failure.
+
+Why step 4 is required even with Tizen SDK sysroot:
+- `rustup target add <triple>` provides Rust target `std`/`core` artifacts consumed by `rustc`.
+- Tizen SDK sysroot provides native headers/libs (`libc`, system `.so`, pkg-config metadata) used by the linker/build scripts.
+- These are complementary; SDK sysroot does not replace Rust target installation.
 
 Implementation detail:
 - Prefer ephemeral `CARGO_TARGET_<TRIPLE>_*` env overrides over mutating user `.cargo/config.toml`.

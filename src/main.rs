@@ -1,4 +1,5 @@
 mod arch;
+mod arch_detect;
 mod cargo_runner;
 mod clean;
 mod cli;
@@ -6,6 +7,7 @@ mod config;
 mod context;
 mod device;
 mod doctor;
+mod fix;
 mod rpm;
 mod run_cmd;
 mod sdk;
@@ -42,6 +44,7 @@ fn main() -> Result<()> {
         Command::Devices(args) => device::run_devices(&ctx, &args)?,
         Command::Run(args) => run_cmd::run_run(&ctx, &args)?,
         Command::Doctor(args) => doctor::run_doctor(&ctx, &args)?,
+        Command::Fix(args) => fix::run_fix(&ctx, &args)?,
         Command::Clean(args) => clean::run_clean(&ctx, &args)?,
     }
 

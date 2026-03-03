@@ -23,7 +23,7 @@ Packaging format:
 Prepare and cache sysroot for one architecture.
 
 ```sh
-cargo tizen setup -A <armv7l|aarch64> [--profile <name>] [--platform-version <ver>] [--provider <rootstrap|repo>] [--sdk-root <path>] [--force]
+cargo tizen setup [-A <armv7l|aarch64>] [--profile <name>] [--platform-version <ver>] [--provider <rootstrap|repo>] [--sdk-root <path>] [--force]
 ```
 
 Notes:
@@ -31,11 +31,13 @@ Notes:
 - `setup` is optional for normal build/package/run flows.
 - `build`/`rpm`/`tpk`/`run` automatically invoke setup if sysroot is not ready.
 - Use `setup` when you want to pre-populate cache explicitly.
+- If `--profile` and/or `--platform-version` are omitted, installed SDK rootstraps are scanned and a matching installed target is auto-selected.
+- If requested profile/platform is not installed, available installed options are printed in the error output.
 
 Examples:
 
 ```sh
-cargo tizen setup -A armv7l --profile mobile --platform-version 9.0
+cargo tizen setup -A armv7l --profile mobile --platform-version 10.0
 cargo tizen setup -A aarch64 --sdk-root /opt/tizen-studio
 ```
 
@@ -44,7 +46,7 @@ cargo tizen setup -A aarch64 --sdk-root /opt/tizen-studio
 Cross-build Rust project using cached sysroot.
 
 ```sh
-cargo tizen build -A <armv7l|aarch64> [--release] [--target-dir <path>] [-- <cargo build args>]
+cargo tizen build [-A <armv7l|aarch64>] [--release] [--target-dir <path>] [-- <cargo build args>]
 ```
 
 Examples:
@@ -55,12 +57,24 @@ cargo tizen build -A aarch64 --release
 cargo tizen build -A armv7l -- --features my_feature
 ```
 
+Architecture auto-selection when `-A` is omitted (`setup`, `build`, `rpm`, `tpk`, `run`):
+1. `[default].arch`
+2. exactly one configured `[arch.*]` entry
+3. exactly one architecture from connected ready Tizen devices
+4. otherwise command fails and asks for `-A`
+
+Rust target note:
+- Tizen SDK sysroot gives native headers/libs for linking.
+- Rust `std` for the target triple still comes from `rustup target add <triple>`.
+- Both are needed for cross-builds.
+- When sysroot has `libssl`/`libcrypto` but no `openssl.pc`, `cargo-tizen` sets `OPENSSL_*` fallback env automatically.
+
 ## `rpm`
 
 Generate RPM from built binary.
 
 ```sh
-cargo tizen rpm -A <armv7l|aarch64> [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]
+cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]
 ```
 
 Current behavior:
@@ -90,12 +104,38 @@ cargo tizen doctor
 cargo tizen doctor -A armv7l
 ```
 
+Notes:
+
+- `cargo tizen doctor` checks both `armv7l` and `aarch64`.
+- `cargo tizen doctor -A <arch>` checks one architecture.
+
+## `fix`
+
+Install missing Rust targets and prepare missing sysroots used for cross-builds.
+
+```sh
+cargo tizen fix [-A <armv7l|aarch64>]
+```
+
+Behavior:
+
+- Without `-A`, checks both `armv7l` and `aarch64` target triples and installs missing ones via `rustup target add`.
+- With `-A`, checks and installs only the selected architecture target triple.
+- Also ensures sysroot cache exists for each selected architecture (runs `setup` defaults when missing).
+
+Examples:
+
+```sh
+cargo tizen fix
+cargo tizen fix -A armv7l
+```
+
 ## `tpk`
 
 Package as TPK using Tizen CLI.
 
 ```sh
-cargo tizen tpk -A <armv7l|aarch64> [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]
+cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]
 ```
 
 Notes:
@@ -138,7 +178,7 @@ cargo tizen devices --all
 Package, install, and launch on a connected device.
 
 ```sh
-cargo tizen run -A <armv7l|aarch64> [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]
+cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]
 ```
 
 Behavior:

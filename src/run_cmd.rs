@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 
+use crate::arch::Arch;
+use crate::arch_detect;
 use crate::cli::{RunArgs, TpkArgs};
 use crate::context::AppContext;
 use crate::device;
@@ -17,8 +19,9 @@ pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
         }
         (path.clone(), None)
     } else {
+        let selected_arch = resolve_run_arch(ctx, args, &device)?;
         let tpk_args = TpkArgs {
-            arch: args.arch,
+            arch: Some(selected_arch),
             cargo_release: args.cargo_release,
             no_build: args.no_build,
             manifest: args.manifest.clone(),
@@ -45,6 +48,22 @@ pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
     device::install_tpk_on_device(ctx, &device, &package_path)?;
     device::launch_app_on_device(ctx, &device, &app_id)?;
     Ok(())
+}
+
+fn resolve_run_arch(ctx: &AppContext, args: &RunArgs, device: &device::TizenDevice) -> Result<Arch> {
+    if let Some(arch) = args.arch {
+        return Ok(arch);
+    }
+
+    if let Some(device_arch) = device.cpu_arch.as_deref().and_then(Arch::parse) {
+        ctx.info(format!(
+            "auto-selected arch {} from target device {}",
+            device_arch, device.id
+        ));
+        return Ok(device_arch);
+    }
+
+    arch_detect::resolve_arch(ctx, None, "run")
 }
 
 fn choose_tpk(paths: &[PathBuf]) -> Result<PathBuf> {

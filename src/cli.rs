@@ -34,13 +34,14 @@ pub enum Command {
     Devices(DevicesArgs),
     Run(RunArgs),
     Doctor(DoctorArgs),
+    Fix(FixArgs),
     Clean(CleanArgs),
 }
 
 #[derive(Debug, Clone, Args)]
 pub struct SetupArgs {
-    #[arg(short = 'A', long)]
-    pub arch: Arch,
+    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    pub arch: Option<Arch>,
 
     #[arg(long)]
     pub profile: Option<String>,
@@ -60,8 +61,8 @@ pub struct SetupArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct BuildArgs {
-    #[arg(short = 'A', long)]
-    pub arch: Arch,
+    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    pub arch: Option<Arch>,
 
     #[arg(long)]
     pub release: bool,
@@ -75,8 +76,8 @@ pub struct BuildArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct RpmArgs {
-    #[arg(short = 'A', long)]
-    pub arch: Arch,
+    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    pub arch: Option<Arch>,
 
     #[arg(long, default_value = "1")]
     pub release: String,
@@ -96,8 +97,8 @@ pub struct RpmArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct TpkArgs {
-    #[arg(short = 'A', long)]
-    pub arch: Arch,
+    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    pub arch: Option<Arch>,
 
     #[arg(long)]
     pub cargo_release: bool,
@@ -129,8 +130,8 @@ pub struct DevicesArgs {
 
 #[derive(Debug, Clone, Args)]
 pub struct RunArgs {
-    #[arg(short = 'A', long)]
-    pub arch: Arch,
+    #[arg(short = 'A', long, help = "Target architecture (auto-detected when omitted)")]
+    pub arch: Option<Arch>,
 
     #[arg(short = 'd', long)]
     pub device: Option<String>,
@@ -166,6 +167,16 @@ pub struct RunArgs {
 #[derive(Debug, Clone, Args)]
 pub struct DoctorArgs {
     #[arg(short = 'A', long)]
+    pub arch: Option<Arch>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct FixArgs {
+    #[arg(
+        short = 'A',
+        long,
+        help = "Target architecture. If omitted, applies fixes for all supported architectures"
+    )]
     pub arch: Option<Arch>,
 }
 

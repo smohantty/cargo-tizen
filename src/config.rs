@@ -28,6 +28,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DefaultConfig {
+    pub arch: Option<String>,
     pub profile: Option<String>,
     pub platform_version: Option<String>,
     pub provider: Option<String>,
@@ -118,7 +119,7 @@ impl Config {
         self.default
             .platform_version
             .clone()
-            .unwrap_or_else(|| "9.0".to_string())
+            .unwrap_or_else(|| "10.0".to_string())
     }
 
     pub fn default_provider(&self) -> ProviderKind {
@@ -200,6 +201,9 @@ impl Config {
 
 impl DefaultConfig {
     fn merge(&mut self, other: Self) {
+        if other.arch.is_some() {
+            self.arch = other.arch;
+        }
         if other.profile.is_some() {
             self.profile = other.profile;
         }

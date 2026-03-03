@@ -5,6 +5,7 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
+use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, TpkArgs};
 use crate::context::AppContext;
@@ -37,12 +38,13 @@ pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
 }
 
 pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput> {
-    let rust_target = ctx.config.rust_target_for(args.arch);
-    let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, args.arch, None);
+    let arch = arch_detect::resolve_arch(ctx, args.arch, "tpk")?;
+    let rust_target = ctx.config.rust_target_for(arch);
+    let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
 
     if !args.no_build {
         let build_args = BuildArgs {
-            arch: args.arch,
+            arch: Some(arch),
             release: args.cargo_release,
             target_dir: Some(build_target_dir.clone()),
             cargo_args: Vec::new(),
@@ -71,7 +73,7 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         .workspace_root
         .join("target")
         .join("tizen")
-        .join(args.arch.as_str())
+        .join(arch.as_str())
         .join(profile_dir)
         .join("tpk")
         .join("root");
@@ -105,7 +107,7 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         ctx.workspace_root
             .join("target")
             .join("tizen")
-            .join(args.arch.as_str())
+            .join(arch.as_str())
             .join(profile_dir)
             .join("tpk")
             .join("out")
@@ -134,7 +136,7 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
 
     ctx.info(format!(
         "running tizen package -t tpk for {} (output: {})",
-        args.arch,
+        arch,
         output_dir.display()
     ));
     let status = cmd

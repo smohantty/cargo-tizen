@@ -3,7 +3,9 @@ use std::fmt::{Display, Formatter};
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ValueEnum, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, ValueEnum, Serialize, Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Arch {
     Armv7l,
@@ -21,6 +23,8 @@ pub struct ArchMap {
 }
 
 impl Arch {
+    pub const ALL: [Arch; 2] = [Arch::Armv7l, Arch::Aarch64];
+
     pub fn map(self) -> ArchMap {
         match self {
             Arch::Armv7l => ArchMap {
@@ -72,6 +76,19 @@ impl Arch {
     pub fn default_linker(self) -> &'static str {
         self.map().default_linker
     }
+
+    pub fn all() -> &'static [Arch] {
+        &Self::ALL
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
+        match normalized.as_str() {
+            "armv7l" | "armv7" | "arm" | "armel" => Some(Self::Armv7l),
+            "aarch64" | "arm64" => Some(Self::Aarch64),
+            _ => None,
+        }
+    }
 }
 
 impl Display for Arch {
@@ -91,5 +108,15 @@ mod tests {
         assert_eq!(Arch::Armv7l.tizen_cli_arch(), "arm");
         assert_eq!(Arch::Armv7l.tizen_build_arch(), "armel");
         assert_eq!(Arch::Armv7l.rpm_arch(), "armv7l");
+    }
+
+    #[test]
+    fn parse_arch_aliases() {
+        assert_eq!(Arch::parse("armv7l"), Some(Arch::Armv7l));
+        assert_eq!(Arch::parse("arm"), Some(Arch::Armv7l));
+        assert_eq!(Arch::parse("armel"), Some(Arch::Armv7l));
+        assert_eq!(Arch::parse("aarch64"), Some(Arch::Aarch64));
+        assert_eq!(Arch::parse("arm64"), Some(Arch::Aarch64));
+        assert_eq!(Arch::parse("x86_64"), None);
     }
 }

@@ -2,13 +2,16 @@ use std::path::Path;
 
 use anyhow::{Result, bail};
 
+use crate::arch::Arch;
 use crate::cli::DoctorArgs;
 use crate::context::AppContext;
 use crate::sdk::TizenSdk;
 use crate::sysroot;
 use crate::sysroot::provider::SetupRequest;
 use crate::sysroot::rootstrap::{self, MISSING_SDK_GUIDANCE};
-use crate::tool_env::{ensure_rust_target_installed, find_tool_in_sdk, resolve_toolchain};
+use crate::tool_env::{
+    ensure_rust_target_installed, find_tool_in_sdk, resolve_toolchain, verify_c_compiler_sanity,
+};
 
 pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
     let mut failures = Vec::new();
@@ -49,9 +52,25 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         None => failures.push(MISSING_SDK_GUIDANCE.to_string()),
     }
 
-    if let Some(arch) = args.arch {
+    let arches: Vec<Arch> = if let Some(arch) = args.arch {
+        vec![arch]
+    } else {
+        Arch::all().to_vec()
+    };
+
+    if args.arch.is_none() {
+        ctx.info("checking all supported architectures: armv7l, aarch64");
+    }
+
+    for arch in arches {
         let toolchain = resolve_toolchain(ctx, arch);
         let linker = toolchain.linker;
+        if let Err(err) = verify_c_compiler_sanity(&toolchain.cc, None) {
+            failures.push(format!("c compiler sanity check failed for arch {}: {}", arch, err));
+        } else {
+            ctx.info(format!("[ok] c compiler sanity check passed: {}", toolchain.cc));
+        }
+
         if binary_exists(&linker) {
             ctx.info(format!("[ok] linker found: {linker}"));
         } else {
@@ -83,10 +102,11 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         }
 
         if ctx.config.default_provider() == crate::sysroot::provider::ProviderKind::Rootstrap {
+            let (profile, platform_version) = sysroot::resolve_profile_platform_for_arch(ctx, arch)?;
             let req = SetupRequest {
                 arch,
-                profile: ctx.config.profile(),
-                platform_version: ctx.config.platform_version(),
+                profile,
+                platform_version,
                 sdk_root_override: ctx.config.sdk_root(),
             };
             match rootstrap::resolve_rootstrap(&req) {

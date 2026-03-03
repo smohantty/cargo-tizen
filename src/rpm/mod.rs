@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 
+use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, RpmArgs};
 use crate::context::AppContext;
@@ -9,12 +10,13 @@ mod spec;
 mod stage;
 
 pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
-    let rust_target = ctx.config.rust_target_for(args.arch);
-    let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, args.arch, None);
+    let arch = arch_detect::resolve_arch(ctx, args.arch, "rpm")?;
+    let rust_target = ctx.config.rust_target_for(arch);
+    let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
 
     if !args.no_build {
         let build_args = BuildArgs {
-            arch: args.arch,
+            arch: Some(arch),
             release: args.cargo_release,
             target_dir: Some(build_target_dir.clone()),
             cargo_args: Vec::new(),
@@ -24,7 +26,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
 
     let stage = stage::stage_binary_from_target_dir(
         &ctx.workspace_root,
-        args.arch,
+        arch,
         &rust_target,
         &build_target_dir,
         args.cargo_release,
@@ -40,10 +42,10 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         .workspace_root
         .join("target")
         .join("tizen")
-        .join(args.arch.as_str())
+        .join(arch.as_str())
         .join(profile_dir)
         .join("rpmbuild");
-    let rpm_arch = ctx.config.rpm_build_arch_for(args.arch);
+    let rpm_arch = ctx.config.rpm_build_arch_for(arch);
 
     let spec_path = if let Some(path) = &args.spec {
         path.clone()
@@ -73,7 +75,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         ctx,
         &ctx.workspace_root,
         &rpm_arch,
-        args.arch,
+        arch,
         profile_dir,
         &spec_path,
         &stage.staged_binary,

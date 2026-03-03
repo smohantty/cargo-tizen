@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::arch::Arch;
 use crate::context::AppContext;
@@ -30,10 +30,13 @@ impl ToolEnv {
         sysroot_dir: &Path,
     ) -> Self {
         let toolchain = resolve_toolchain(ctx, arch);
+        let target_key = rust_target.to_string();
+        let target_key_underscore = rust_target.replace('-', "_");
         let env_key = rust_target.replace('-', "_").to_uppercase();
         let mut env = Self::default();
 
         let rustflags_value = format!("-Clink-arg=--sysroot={}", sysroot_dir.display());
+        let cflags_value = format!("--sysroot={}", sysroot_dir.display());
         let pkg_config_libdir = format!(
             "{}:{}:{}",
             sysroot_dir.join("usr/lib/pkgconfig").display(),
@@ -55,7 +58,24 @@ impl ToolEnv {
         env.set(format!("CC_{}", env_key), &toolchain.cc);
         env.set(format!("CXX_{}", env_key), &toolchain.cxx);
         env.set(format!("AR_{}", env_key), &toolchain.ar);
+        env.set(format!("CC_{}", target_key), &toolchain.cc);
+        env.set(format!("CC_{}", target_key_underscore), &toolchain.cc);
+        env.set(format!("CXX_{}", target_key), &toolchain.cxx);
+        env.set(format!("CXX_{}", target_key_underscore), &toolchain.cxx);
+        env.set(format!("AR_{}", target_key), &toolchain.ar);
+        env.set(format!("AR_{}", target_key_underscore), &toolchain.ar);
+        env.set(format!("CFLAGS_{}", target_key), &cflags_value);
+        env.set(
+            format!("CFLAGS_{}", target_key_underscore),
+            &cflags_value,
+        );
+        env.set(format!("CXXFLAGS_{}", target_key), &cflags_value);
+        env.set(
+            format!("CXXFLAGS_{}", target_key_underscore),
+            &cflags_value,
+        );
         env.set("USER_CPP_OPTS", "-std=c++17");
+        configure_openssl_env(&mut env, &env_key, sysroot_dir);
 
         if let Some(path) = build_augmented_path(ctx, &toolchain) {
             env.set("PATH", path.to_string_lossy().to_string());
@@ -68,11 +88,129 @@ impl ToolEnv {
         self.vars.push((key.into(), value.into()));
     }
 
+    pub fn set_if_unset(&mut self, key: impl Into<String>, value: impl Into<String>) {
+        let key = key.into();
+        if std::env::var_os(&key).is_none() {
+            self.vars.push((key, value.into()));
+        }
+    }
+
     pub fn apply(&self, command: &mut Command) {
         for (key, value) in &self.vars {
             command.env(key, value);
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct OpenSslLocation {
+    lib_dir: PathBuf,
+    include_dir: PathBuf,
+    root_dir: PathBuf,
+}
+
+fn configure_openssl_env(env: &mut ToolEnv, env_key: &str, sysroot_dir: &Path) {
+    let Some(openssl) = discover_openssl_fallback(sysroot_dir) else {
+        return;
+    };
+
+    let lib_dir = openssl.lib_dir.display().to_string();
+    let include_dir = openssl.include_dir.display().to_string();
+    let root_dir = openssl.root_dir.display().to_string();
+
+    env.set_if_unset("OPENSSL_LIB_DIR", &lib_dir);
+    env.set_if_unset("OPENSSL_INCLUDE_DIR", &include_dir);
+    env.set_if_unset("OPENSSL_DIR", &root_dir);
+    env.set_if_unset("OPENSSL_NO_VENDOR", "1");
+    env.set_if_unset("OPENSSL_NO_PKG_CONFIG", "1");
+
+    env.set_if_unset(format!("{env_key}_OPENSSL_LIB_DIR"), &lib_dir);
+    env.set_if_unset(format!("{env_key}_OPENSSL_INCLUDE_DIR"), &include_dir);
+    env.set_if_unset(format!("{env_key}_OPENSSL_DIR"), &root_dir);
+    env.set_if_unset(format!("{env_key}_OPENSSL_NO_VENDOR"), "1");
+    env.set_if_unset(format!("{env_key}_OPENSSL_NO_PKG_CONFIG"), "1");
+}
+
+fn discover_openssl_fallback(sysroot_dir: &Path) -> Option<OpenSslLocation> {
+    let include_dir = sysroot_dir.join("usr").join("include");
+    if !include_dir.join("openssl").is_dir() {
+        return None;
+    }
+
+    let has_openssl_pc = [
+        sysroot_dir.join("usr/lib/pkgconfig/openssl.pc"),
+        sysroot_dir.join("usr/lib64/pkgconfig/openssl.pc"),
+    ]
+    .iter()
+    .any(|path| path.is_file());
+    if has_openssl_pc {
+        return None;
+    }
+
+    for lib_dir in [sysroot_dir.join("usr/lib"), sysroot_dir.join("usr/lib64")] {
+        if has_library(&lib_dir, "libssl") && has_library(&lib_dir, "libcrypto") {
+            return Some(OpenSslLocation {
+                lib_dir,
+                include_dir: include_dir.clone(),
+                root_dir: sysroot_dir.join("usr"),
+            });
+        }
+    }
+
+    None
+}
+
+fn has_library(lib_dir: &Path, prefix: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir(lib_dir) else {
+        return false;
+    };
+
+    entries.flatten().any(|entry| {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        name.starts_with(prefix)
+            && (name.ends_with(".a") || name.ends_with(".so") || name.contains(".so."))
+    })
+}
+
+pub fn verify_c_compiler_sanity(cc: &str, sysroot_dir: Option<&Path>) -> Result<()> {
+    let mut cmd = Command::new(cc);
+    cmd.arg("-E").arg("-x").arg("c").arg("-");
+    if let Some(sysroot_dir) = sysroot_dir {
+        cmd.arg(format!("--sysroot={}", sysroot_dir.display()));
+    }
+    cmd.stdin(Stdio::null());
+
+    let output = cmd.output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr_trimmed = stderr.trim();
+    if stderr_trimmed.contains("/root/.dibs/") && stderr_trimmed.contains("Permission denied") {
+        bail!(
+            "compiler `{}` is unusable: it references inaccessible include paths under `/root/.dibs/...`. \
+configure [arch.<name>].linker/cc/cxx in `.cargo-tizen.toml` to a valid cross-toolchain.\nstderr:\n{}",
+            cc,
+            stderr_trimmed
+        );
+    }
+
+    if let Some(sysroot_dir) = sysroot_dir {
+        bail!(
+            "compiler `{}` failed sanity check (`-E -x c - --sysroot={}`). stderr:\n{}",
+            cc,
+            sysroot_dir.display(),
+            stderr_trimmed
+        );
+    }
+
+    bail!(
+        "compiler `{}` failed sanity check (`-E -x c -`). stderr:\n{}",
+        cc,
+        stderr_trimmed
+    )
 }
 
 pub fn resolve_toolchain(ctx: &AppContext, arch: Arch) -> ResolvedToolchain {

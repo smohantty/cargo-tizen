@@ -9,7 +9,7 @@
 ## Status
 
 Implemented:
-- Commands: `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `clean`
+- Commands: `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `fix`, `clean`
 - Sysroot cache with metadata and locking
 - Rootstrap-based provider with profile fallback policy
 - SDK auto-discovery
@@ -41,8 +41,14 @@ When upstream design/commands around rootstrap resolution, Tizen SDK integration
 
 Required tools:
 - Rust toolchain (`cargo`, `rustc`, `rustup`)
+- Rust target stdlib for each Tizen arch (`rustup target add armv7-unknown-linux-gnueabihf`, `rustup target add aarch64-unknown-linux-gnu`)
 - `rpmbuild` (usually from `rpm-build`)
 - Tizen SDK with Native CLI and matching rootstrap packages for your target/profile/version
+
+Important:
+- Tizen SDK sysroot provides native headers/libs for cross-linking.
+- Rust targets from `rustup target add` provide Rust `std`/`core` artifacts for `rustc`.
+- Both are required for cross-builds.
 
 SDK detection order:
 1. `setup --sdk-root <path>`
@@ -107,8 +113,9 @@ Create `.cargo-tizen.toml` in the target Rust project:
 
 ```toml
 [default]
+arch = "armv7l"
 profile = "mobile"
-platform_version = "9.0"
+platform_version = "10.0"
 provider = "rootstrap"
 
 [sdk]
@@ -132,9 +139,34 @@ rpm_build_arch = "aarch64"
 ### 2. Validate toolchain and SDK
 
 ```bash
+cargo tizen doctor
 cargo tizen doctor -A armv7l
 cargo tizen doctor -A aarch64
 ```
+
+Notes:
+- `cargo tizen doctor` (without `-A`) checks both `armv7l` and `aarch64`.
+- `cargo tizen doctor -A <arch>` checks a specific architecture.
+
+### 2.1 Fix missing Rust targets
+
+Install missing Rust targets and prepare missing sysroots automatically:
+
+```bash
+cargo tizen fix
+```
+
+Install missing target for one architecture:
+
+```bash
+cargo tizen fix -A armv7l
+```
+
+Architecture selection when `-A/--arch` is omitted (`setup`, `build`, `rpm`, `tpk`, `run`):
+1. `[default].arch`
+2. exactly one configured `[arch.*]` entry
+3. exactly one architecture from connected ready Tizen devices
+4. otherwise command fails and asks for `-A`
 
 ### 3. Prepare sysroot cache
 
@@ -147,6 +179,8 @@ Note:
 - `setup` is optional for normal builds.
 - `build`/`rpm`/`tpk`/`run` automatically run setup when sysroot is missing or invalid.
 - use `setup` mainly to pre-warm cache ahead of time.
+- when `--profile` and/or `--platform-version` are omitted, `cargo-tizen` selects from installed rootstraps in your SDK for the selected arch.
+- when an unavailable profile/platform is requested, `cargo-tizen` prints installed options like `--platform-version <ver> --profile <name>`.
 
 Force refresh:
 
@@ -256,13 +290,14 @@ TPK output:
 
 ## Command Reference
 
-- `cargo tizen setup -A <armv7l|aarch64> [--profile] [--platform-version] [--provider] [--sdk-root] [--force]`
-- `cargo tizen build -A <armv7l|aarch64> [--release] [--target-dir <path>] [-- <cargo build args>]`
-- `cargo tizen rpm -A <armv7l|aarch64> [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]`
-- `cargo tizen tpk -A <armv7l|aarch64> [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]`
+- `cargo tizen setup [-A <armv7l|aarch64>] [--profile] [--platform-version] [--provider] [--sdk-root] [--force]`
+- `cargo tizen build [-A <armv7l|aarch64>] [--release] [--target-dir <path>] [-- <cargo build args>]`
+- `cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]`
+- `cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]`
 - `cargo tizen devices [--all]`
-- `cargo tizen run -A <armv7l|aarch64> [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]`
+- `cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]`
 - `cargo tizen doctor [-A <armv7l|aarch64>]`
+- `cargo tizen fix [-A <armv7l|aarch64>]`
 - `cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]`
 
 ## Troubleshooting
@@ -275,6 +310,11 @@ If `doctor` says SDK is missing:
 If `setup` fails with rootstrap missing:
 - install matching Native App Development/rootstrap packages for your profile and platform version
 - rerun `cargo tizen setup -A <arch>`
+
+If build fails early with "compiler is unusable" and `/root/.dibs/...` in stderr:
+- your selected cross-compiler has broken built-in include paths
+- configure `[arch.<arch>].linker`, `[arch.<arch>].cc`, and `[arch.<arch>].cxx` to a working Tizen GCC/Clang path
+- rerun `cargo tizen doctor -A <arch>` and then `cargo tizen build`
 
 If `rpmbuild` is missing:
 - install your distro package providing `rpmbuild` (commonly `rpm-build`)

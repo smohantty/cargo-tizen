@@ -4,16 +4,22 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 
 use crate::arch::Arch;
+use crate::arch_detect;
 use crate::cli::BuildArgs;
 use crate::context::AppContext;
 use crate::sysroot;
-use crate::tool_env::{ToolEnv, ensure_rust_target_installed, resolve_toolchain};
+use crate::tool_env::{
+    ToolEnv, ensure_rust_target_installed, resolve_toolchain, verify_c_compiler_sanity,
+};
 
 pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
-    let resolved = sysroot::ensure_for_build(ctx, args.arch)?;
-    let rust_target = ctx.config.rust_target_for(args.arch);
-    let toolchain = resolve_toolchain(ctx, args.arch);
-    let target_dir = resolve_target_dir(&ctx.workspace_root, args.arch, args.target_dir.as_deref());
+    let arch = arch_detect::resolve_arch(ctx, args.arch, "build")?;
+    let resolved = sysroot::ensure_for_build(ctx, arch)?;
+    let rust_target = ctx.config.rust_target_for(arch);
+    let toolchain = resolve_toolchain(ctx, arch);
+    let target_dir = resolve_target_dir(&ctx.workspace_root, arch, args.target_dir.as_deref());
+
+    verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir))?;
 
     if !ensure_rust_target_installed(&rust_target)? {
         bail!(
@@ -35,9 +41,9 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     ctx.debug(format!("linker resolved to {}", toolchain.linker));
     ctx.debug(format!(
         "arch map: tizen_cli_arch={}, tizen_build_arch={}, rpm_build_arch={}",
-        ctx.config.tizen_cli_arch_for(args.arch),
-        ctx.config.tizen_build_arch_for(args.arch),
-        ctx.config.rpm_build_arch_for(args.arch)
+        ctx.config.tizen_cli_arch_for(arch),
+        ctx.config.tizen_build_arch_for(arch),
+        ctx.config.rpm_build_arch_for(arch)
     ));
     ctx.debug(format!("cargo target-dir: {}", target_dir.display()));
 
@@ -55,7 +61,7 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     cmd.arg("--target-dir").arg(&target_dir);
     cmd.args(&args.cargo_args);
 
-    ToolEnv::for_cargo_build(ctx, args.arch, &rust_target, &resolved.sysroot_dir).apply(&mut cmd);
+    ToolEnv::for_cargo_build(ctx, arch, &rust_target, &resolved.sysroot_dir).apply(&mut cmd);
 
     ctx.info(format!(
         "running cargo build for {} using sysroot {}",

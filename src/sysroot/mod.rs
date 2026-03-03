@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result, bail};
 
 use crate::arch::Arch;
+use crate::arch_detect;
 use crate::cli::SetupArgs;
 use crate::context::AppContext;
 
@@ -17,6 +18,13 @@ use cache::{CacheKey, CacheMeta, STATE_READY};
 use provider::{ProviderKind, SetupRequest, provider_for};
 
 #[derive(Debug, Clone)]
+struct ResolvedProfilePlatform {
+    profile: String,
+    platform_version: String,
+    from_sdk_discovery: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct ResolvedSysroot {
     pub entry_dir: PathBuf,
     pub sysroot_dir: PathBuf,
@@ -26,20 +34,34 @@ pub struct ResolvedSysroot {
 }
 
 pub fn run_setup(ctx: &AppContext, args: &SetupArgs) -> Result<()> {
-    let profile = args.profile.clone().unwrap_or_else(|| ctx.config.profile());
-    let platform_version = args
-        .platform_version
-        .clone()
-        .unwrap_or_else(|| ctx.config.platform_version());
+    let arch = arch_detect::resolve_arch(ctx, args.arch, "setup")?;
     let provider = args
         .provider
         .unwrap_or_else(|| ctx.config.default_provider());
+    let sdk_root_override = args.sdk_root.clone().or_else(|| ctx.config.sdk_root());
+    let resolved_defaults = resolve_profile_platform(
+        ctx,
+        provider,
+        arch,
+        args.profile.clone(),
+        args.platform_version.clone(),
+        sdk_root_override.clone(),
+    )?;
+    let profile = resolved_defaults.profile;
+    let platform_version = resolved_defaults.platform_version;
+    if resolved_defaults.from_sdk_discovery && (args.profile.is_none() || args.platform_version.is_none())
+    {
+        ctx.info(format!(
+            "auto-selected installed rootstrap target: profile={} platform-version={}",
+            profile, platform_version
+        ));
+    }
 
     let request = SetupRequest {
-        arch: args.arch,
+        arch,
         profile: profile.clone(),
         platform_version: platform_version.clone(),
-        sdk_root_override: args.sdk_root.clone().or_else(|| ctx.config.sdk_root()),
+        sdk_root_override,
     };
 
     let provider_impl = provider_for(provider);
@@ -53,7 +75,7 @@ pub fn run_setup(ctx: &AppContext, args: &SetupArgs) -> Result<()> {
         ctx.info(format!(
             "sysroot cache hit: {} ({})",
             final_entry.display(),
-            args.arch
+            arch
         ));
         return Ok(());
     }
@@ -120,9 +142,10 @@ pub fn run_setup(ctx: &AppContext, args: &SetupArgs) -> Result<()> {
 }
 
 pub fn resolve_for_build(ctx: &AppContext, arch: Arch) -> Result<ResolvedSysroot> {
-    let profile = ctx.config.profile();
-    let platform_version = ctx.config.platform_version();
     let provider = ctx.config.default_provider();
+    let resolved_defaults = resolve_profile_platform(ctx, provider, arch, None, None, None)?;
+    let profile = resolved_defaults.profile;
+    let platform_version = resolved_defaults.platform_version;
 
     let request = SetupRequest {
         arch,
@@ -156,6 +179,47 @@ pub fn resolve_for_build(ctx: &AppContext, arch: Arch) -> Result<ResolvedSysroot
     })
 }
 
+pub fn resolve_profile_platform_for_arch(ctx: &AppContext, arch: Arch) -> Result<(String, String)> {
+    let provider = ctx.config.default_provider();
+    let resolved = resolve_profile_platform(ctx, provider, arch, None, None, None)?;
+    Ok((resolved.profile, resolved.platform_version))
+}
+
+fn resolve_profile_platform(
+    ctx: &AppContext,
+    provider: ProviderKind,
+    arch: Arch,
+    profile_override: Option<String>,
+    platform_override: Option<String>,
+    sdk_root_override: Option<PathBuf>,
+) -> Result<ResolvedProfilePlatform> {
+    let requested_profile = profile_override.or_else(|| ctx.config.default.profile.clone());
+    let requested_platform =
+        platform_override.or_else(|| ctx.config.default.platform_version.clone());
+
+    if provider == ProviderKind::Rootstrap {
+        let sdk_root = sdk_root_override.clone().or_else(|| ctx.config.sdk_root());
+        if let Some(selected) = rootstrap::select_installed_profile_platform(
+            sdk_root.as_deref(),
+            arch,
+            requested_profile.as_deref(),
+            requested_platform.as_deref(),
+        )? {
+            return Ok(ResolvedProfilePlatform {
+                profile: selected.profile,
+                platform_version: selected.platform_version,
+                from_sdk_discovery: true,
+            });
+        }
+    }
+
+    Ok(ResolvedProfilePlatform {
+        profile: requested_profile.unwrap_or_else(|| ctx.config.profile()),
+        platform_version: requested_platform.unwrap_or_else(|| ctx.config.platform_version()),
+        from_sdk_discovery: false,
+    })
+}
+
 pub fn ensure_for_build(ctx: &AppContext, arch: Arch) -> Result<ResolvedSysroot> {
     match resolve_for_build(ctx, arch) {
         Ok(resolved) => Ok(resolved),
@@ -166,7 +230,7 @@ pub fn ensure_for_build(ctx: &AppContext, arch: Arch) -> Result<ResolvedSysroot>
             ));
 
             let setup_args = SetupArgs {
-                arch,
+                arch: Some(arch),
                 profile: None,
                 platform_version: None,
                 provider: None,

@@ -225,6 +225,29 @@ cargo tizen clean --sysroot -A aarch64
 cargo tizen clean --all
 ```
 
+## `config`
+
+View or set persistent user-level configuration values.
+
+```sh
+cargo tizen config [--sign <profile>] [--show]
+```
+
+Notes:
+
+- Settings are stored in `~/.config/cargo-tizen/config.toml`.
+- `--sign <profile>` sets the default TPK signing profile used by `tpk` and `run` when `--sign` is not passed on the command line.
+- `--sign ""` (empty string) clears the stored signing profile.
+- `--show` (or no flags) prints current configuration values.
+
+Examples:
+
+```sh
+cargo tizen config --sign my_profile
+cargo tizen config --show
+cargo tizen config
+```
+
 ## Output directories
 
 Build outputs:

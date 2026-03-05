@@ -4,6 +4,7 @@ mod cargo_runner;
 mod clean;
 mod cli;
 mod config;
+mod config_cmd;
 mod context;
 mod device;
 mod doctor;
@@ -48,6 +49,7 @@ fn main() -> Result<()> {
         Command::Doctor(args) => doctor::run_doctor(&ctx, &args)?,
         Command::Fix(args) => fix::run_fix(&ctx, &args)?,
         Command::Clean(args) => clean::run_clean(&ctx, &args)?,
+        Command::Config(args) => config_cmd::run_config(&ctx, &args)?,
     }
 
     Ok(())

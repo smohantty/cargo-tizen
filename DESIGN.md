@@ -22,7 +22,7 @@ Upstream adaptation reference:
 ## 1.1 Implementation Status (Current)
 
 Implemented:
-- CLI scaffold for `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `fix`, `clean`.
+- CLI scaffold for `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `fix`, `clean`, `config`.
 - `ArchMap` defaults for Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
 - Rootstrap-based sysroot provisioning from installed Tizen SDK rootstraps.
 - Rootstrap fallback policy for missing `tv-samsung` rootstraps.
@@ -218,7 +218,21 @@ cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]
 Purpose:
 - Remove build outputs and/or cached sysroots.
 
-## 4.10 `tpk`
+## 4.10 `config`
+
+```bash
+cargo tizen config [--sign <profile>] [--show]
+```
+
+Purpose:
+- View or set persistent user-level configuration values stored in `~/.config/cargo-tizen/config.toml`.
+
+Behavior:
+- `--sign <profile>`: set the default TPK signing profile (used by `tpk` and `run` when `--sign` is not passed on the command line).
+- `--sign ""`: clear the stored signing profile.
+- `--show` or no flags: print current resolved configuration values.
+
+## 4.11 `tpk`
 
 ```bash
 cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]
@@ -233,7 +247,7 @@ Behavior:
 - Invokes `tizen package -t tpk`.
 - Emits generated `.tpk` path(s).
 
-## 4.11 Architecture Auto-Detection
+## 4.12 Architecture Auto-Detection
 
 When `-A/--arch` is omitted for `setup`, `build`, `rpm`, `tpk`, and `run`, architecture is resolved in this order:
 1. `[default].arch` in config.
@@ -287,6 +301,9 @@ root = "~/.cache/cargo-tizen/sysroots"
 [rpm]
 packager = "Your Team <dev@example.com>"
 license = "Apache-2.0"
+
+[tpk]
+sign = "my_profile"
 ```
 
 Cargo project metadata extension:

@@ -20,13 +20,17 @@ pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
         (path.clone(), None)
     } else {
         let selected_arch = resolve_run_arch(ctx, args, &device)?;
+        let resolved_sign = args
+            .sign
+            .clone()
+            .or_else(|| ctx.config.tpk_sign().map(String::from));
         let tpk_args = TpkArgs {
             arch: Some(selected_arch),
             cargo_release: args.cargo_release,
             no_build: args.no_build,
             manifest: args.manifest.clone(),
             output: args.output.clone(),
-            sign: args.sign.clone(),
+            sign: resolved_sign,
             reference: args.reference.clone(),
             extra_dir: args.extra_dir.clone(),
         };

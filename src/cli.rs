@@ -36,6 +36,7 @@ pub enum Command {
     Doctor(DoctorArgs),
     Fix(FixArgs),
     Clean(CleanArgs),
+    Config(ConfigArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -198,6 +199,17 @@ pub struct FixArgs {
         help = "Target architecture. If omitted, applies fixes for all supported architectures"
     )]
     pub arch: Option<Arch>,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct ConfigArgs {
+    /// Set the default TPK signing profile
+    #[arg(long)]
+    pub sign: Option<String>,
+
+    /// Show current configuration values
+    #[arg(long)]
+    pub show: bool,
 }
 
 #[derive(Debug, Clone, Args)]

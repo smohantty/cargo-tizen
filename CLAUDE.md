@@ -29,6 +29,7 @@ When changing SDK/rootstrap/device workflows, check upstream behavior first and 
 - `cargo tizen run`
 - `cargo tizen doctor`
 - `cargo tizen clean`
+- `cargo tizen config`
 
 If flags/semantics change, update:
 - `README.md`
@@ -49,6 +50,7 @@ in the same patch.
 - Device discovery/install/launch: `src/device.rs`, `src/run_cmd.rs`
 - RPM backend: `src/rpm/*`
 - TPK backend: `src/tpk.rs`
+- Config command: `src/config_cmd.rs`
 - Diagnostics: `src/doctor.rs`
 
 ## Critical invariants

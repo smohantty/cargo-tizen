@@ -185,6 +185,8 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
     })?;
     ensure_executable_mode(&packaged_binary)?;
 
+    let resolved_sign = args.sign.as_deref().or_else(|| ctx.config.tpk_sign());
+
     ctx.info(format!(
         "running tizen package -t tpk for {} profile={} platform-version={} (output: {})",
         arch,
@@ -192,7 +194,14 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         platform_version,
         output_dir.display()
     ));
-    run_tizen_package(ctx, &tizen_cli, args, &output_dir, &build_output_dir)?;
+    run_tizen_package(
+        ctx,
+        &tizen_cli,
+        resolved_sign,
+        args,
+        &output_dir,
+        &build_output_dir,
+    )?;
 
     let tpks = collect_tpks(&output_dir)?;
     if tpks.is_empty() {
@@ -459,13 +468,14 @@ fn build_temp_native_project(
 fn run_tizen_package(
     ctx: &AppContext,
     tizen_cli: &Path,
+    sign: Option<&str>,
     args: &TpkArgs,
     output_dir: &Path,
     build_output_dir: &Path,
 ) -> Result<()> {
     let mut cmd = Command::new(tizen_cli);
     cmd.arg("package").arg("-t").arg("tpk");
-    if let Some(sign) = &args.sign {
+    if let Some(sign) = sign {
         cmd.arg("-s").arg(sign);
     }
     if let Some(reference) = &args.reference {

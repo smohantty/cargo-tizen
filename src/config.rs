@@ -24,6 +24,9 @@ pub struct Config {
 
     #[serde(default)]
     pub sdk: SdkConfig,
+
+    #[serde(default)]
+    pub tpk: TpkConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -60,6 +63,11 @@ pub struct RpmConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SdkConfig {
     pub root: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TpkConfig {
+    pub sign: Option<String>,
 }
 
 impl Config {
@@ -106,6 +114,7 @@ impl Config {
         self.cache.merge(other.cache);
         self.rpm.merge(other.rpm);
         self.sdk.merge(other.sdk);
+        self.tpk.merge(other.tpk);
     }
 
     pub fn profile(&self) -> String {
@@ -201,6 +210,10 @@ impl Config {
 
         PathBuf::from(".cache").join("cargo-tizen").join("sysroots")
     }
+
+    pub fn tpk_sign(&self) -> Option<&str> {
+        self.tpk.sign.as_deref()
+    }
 }
 
 impl DefaultConfig {
@@ -276,7 +289,15 @@ impl SdkConfig {
     }
 }
 
-fn user_config_path() -> Option<PathBuf> {
+impl TpkConfig {
+    fn merge(&mut self, other: Self) {
+        if other.sign.is_some() {
+            self.sign = other.sign;
+        }
+    }
+}
+
+pub fn user_config_path() -> Option<PathBuf> {
     dirs::config_dir().map(|root| root.join("cargo-tizen").join("config.toml"))
 }
 

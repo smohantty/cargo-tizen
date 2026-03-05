@@ -9,7 +9,7 @@
 ## Status
 
 Implemented:
-- Commands: `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `fix`, `clean`
+- Commands: `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `fix`, `clean`, `config`
 - Sysroot cache with metadata and locking
 - Rootstrap-based provider with profile fallback policy
 - SDK auto-discovery
@@ -321,6 +321,79 @@ TPK output:
 - `cargo tizen doctor [-A <armv7l|aarch64>]`
 - `cargo tizen fix [-A <armv7l|aarch64>]`
 - `cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]`
+- `cargo tizen config [--sign <profile>] [--show]`
+
+## TPK Signing Profile Setup
+
+TPK packages must be signed with a security profile to install and run on Tizen devices. Without a signing profile, the device may reject the package or the app may fail with permission errors.
+
+### 1. Create certificates in Tizen Studio
+
+Open Tizen Studio and go to **Tools > Certificate Manager** (or run `tizen-studio/tools/certificate-manager/certificate-manager`).
+
+1. Click **+** to create a new certificate profile
+2. Enter a profile name (e.g. `my_profile`)
+3. Select **Tizen** as the device type
+4. For **Author Certificate**:
+   - Select **Create a new author certificate**
+   - Fill in name, password, and optional fields
+   - Click **Next** and **Finish**
+5. For **Distributor Certificate**:
+   - For development/testing: select **Use the default Tizen distributor certificate**
+   - For Samsung TV apps: select **Use an existing distributor certificate** and provide your Samsung distributor certificate
+   - Click **Finish**
+
+The profile is now saved in Tizen Studio's profile configuration (typically at `<tizen-studio-data>/profile/profiles.xml`).
+
+### 2. Verify the profile exists
+
+```bash
+tizen security-profiles list
+```
+
+You should see your profile name in the output.
+
+### 3. Use the signing profile with cargo-tizen
+
+Set a default signing profile so you don't need `--sign` on every command:
+
+```bash
+cargo tizen config --sign my_profile
+```
+
+This stores the profile in `~/.config/cargo-tizen/config.toml`. View the current setting:
+
+```bash
+cargo tizen config --show
+```
+
+The default is used automatically by `tpk` and `run`. You can still override per-invocation with `--sign`:
+
+```bash
+cargo tizen tpk -A aarch64 --cargo-release --sign my_profile
+```
+
+```bash
+cargo tizen run -A aarch64 --cargo-release --sign my_profile
+```
+
+### 4. Samsung TV device certificates
+
+For Samsung TVs, you need a Samsung distributor certificate tied to your TV's DUID:
+
+1. In Certificate Manager, choose **Samsung** as the device type instead of **Tizen**
+2. For the distributor certificate, sign in with your Samsung developer account
+3. Add your TV's DUID (found in **Settings > Support > About This TV** or via `sdb capability | grep duid`)
+4. Complete the wizard
+
+Use the resulting profile name with `--sign`.
+
+### Notes
+
+- Each signing profile contains an author certificate and a distributor certificate
+- The author certificate identifies you; the distributor certificate determines which devices accept the package
+- If you see "action not permitted" after installing a TPK, the signing profile may not match the device's trust chain
+- Profiles created in Tizen Studio are stored globally and accessible by the `tizen` CLI that `cargo-tizen` invokes
 
 ## Troubleshooting
 

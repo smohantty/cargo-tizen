@@ -312,9 +312,21 @@ fn render_default_manifest(
         r#"<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns="http://tizen.org/ns/packages" package="{package_id}" version="{manifest_version}" api-version="{platform_version}">
     <profile name="{profile}" />
-    <ui-application appid="{appid}" exec="{exec}" type="capp" multiple="false" taskmanage="true" nodisplay="false" launch_mode="single">
+    <service-application appid="{appid}" exec="{exec}" type="capp" multiple="false" taskmanage="false">
         <label>{label}</label>
-    </ui-application>
+    </service-application>
+    <privileges>
+        <privilege>http://tizen.org/privilege/appmanager.launch</privilege>
+        <privilege>http://tizen.org/privilege/filesystem.read</privilege>
+        <privilege>http://tizen.org/privilege/filesystem.write</privilege>
+        <privilege>http://tizen.org/privilege/network.get</privilege>
+        <privilege>http://tizen.org/privilege/network.set</privilege>
+        <privilege>http://tizen.org/privilege/internet</privilege>
+        <privilege>http://tizen.org/privilege/externalstorage</privilege>
+        <privilege>http://tizen.org/privilege/externalstorage.appdata</privilege>
+        <privilege>http://tizen.org/privilege/mediastorage</privilege>
+        <privilege>http://tizen.org/privilege/appdir.shareddata</privilege>
+    </privileges>
 </manifest>
 "#,
         package_id = package_id,
@@ -642,6 +654,9 @@ mod tests {
         assert!(manifest.contains(r#"version="0.9.2""#));
         assert!(manifest.contains(r#"api-version="10.0""#));
         assert!(manifest.contains(r#"profile name="tizen""#));
+        assert!(manifest.contains("service-application"));
+        assert!(!manifest.contains("ui-application"));
+        assert!(manifest.contains("http://tizen.org/privilege/internet"));
     }
 
     #[test]

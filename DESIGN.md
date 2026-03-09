@@ -414,6 +414,10 @@ Given `cargo tizen build -A armv7l`:
    - `PKG_CONFIG_SYSROOT_DIR`
    - `PKG_CONFIG_LIBDIR`
    - `PKG_CONFIG_ALLOW_CROSS=1`
+   - `CFLAGS_<target>` / `CXXFLAGS_<target>` / `CPPFLAGS_<target>`
+     - includes `--sysroot=<...>`
+     - includes compatibility preprocessor workaround:
+       `-U__glibc_has_include -D__glibc_has_include(x)=0`
    - `PATH` augmentation with SDK/toolchain directories
    - `USER_CPP_OPTS=-std=c++17`
    - OpenSSL fallback env (`OPENSSL_*`) when sysroot has `libssl`/`libcrypto` but no `openssl.pc`

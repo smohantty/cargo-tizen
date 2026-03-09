@@ -36,7 +36,10 @@ impl ToolEnv {
         let mut env = Self::default();
 
         let rustflags_value = format!("-Clink-arg=--sysroot={}", sysroot_dir.display());
-        let cflags_value = format!("--sysroot={}", sysroot_dir.display());
+        let cflags_value = format!(
+            "--sysroot={} -U__glibc_has_include -D__glibc_has_include(x)=0",
+            sysroot_dir.display()
+        );
         let pkg_config_libdir = format!(
             "{}:{}:{}",
             sysroot_dir.join("usr/lib/pkgconfig").display(),
@@ -68,6 +71,11 @@ impl ToolEnv {
         env.set(format!("CFLAGS_{}", target_key_underscore), &cflags_value);
         env.set(format!("CXXFLAGS_{}", target_key), &cflags_value);
         env.set(format!("CXXFLAGS_{}", target_key_underscore), &cflags_value);
+        env.set(format!("CPPFLAGS_{}", target_key), &cflags_value);
+        env.set(
+            format!("CPPFLAGS_{}", target_key_underscore),
+            &cflags_value,
+        );
         env.set("USER_CPP_OPTS", "-std=c++17");
         configure_openssl_env(&mut env, &env_key, sysroot_dir);
 

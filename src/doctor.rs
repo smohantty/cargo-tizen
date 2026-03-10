@@ -95,7 +95,9 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         if binary_exists(&linker) {
             sec.ok(format!("linker: {linker}"));
         } else {
-            let mut message = format!("linker not found: {linker}");
+            let apt_pkg = arch.map().linker_apt_package;
+            let mut message =
+                format!("linker not found: {linker} (install with: sudo apt install {apt_pkg})");
             if let Some(sdk) = &sdk {
                 let default_linker = ctx.config.linker_for(arch);
                 if let Some(found) = find_tool_in_sdk(sdk, &default_linker) {
@@ -163,7 +165,12 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
                 sec.ok(format!("sysroot cache: {}", resolved.sysroot_dir.display()));
                 match verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir)) {
                     Ok(()) => sec.ok(format!("C compiler: {}", toolchain.cc)),
-                    Err(err) => sec.error(format!("C compiler sanity failed: {err}")),
+                    Err(err) => {
+                        let apt_pkg = arch.map().linker_apt_package;
+                        sec.error(format!(
+                            "C compiler sanity failed: {err} (install with: sudo apt install {apt_pkg})"
+                        ));
+                    }
                 }
             }
             Err(err) => sec.error_multiline(&format!("sysroot: {err}")),

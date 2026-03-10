@@ -39,16 +39,35 @@ When upstream design/commands around rootstrap resolution, Tizen SDK integration
 
 ## Prerequisites
 
-Required tools:
-- Rust toolchain (`cargo`, `rustc`, `rustup`)
-- Rust target stdlib for each Tizen arch (`armv7l` uses `armv7-unknown-linux-gnueabi` or `armv7-unknown-linux-gnueabihf` based on rootstrap ABI; `aarch64` uses `aarch64-unknown-linux-gnu`)
-- `rpmbuild` (usually from `rpm-build`, required only for `cargo tizen rpm`)
-- Tizen SDK with Native CLI and matching rootstrap packages for your target/profile/version
+Cross-building for Tizen requires three layers. All three are needed:
 
-Important:
-- Tizen SDK sysroot provides native headers/libs for cross-linking.
-- Rust targets from `rustup target add` provide Rust `std`/`core` artifacts for `rustc`.
-- Both are required for cross-builds.
+| Layer | What it provides | How to install |
+|-------|-----------------|----------------|
+| **Rust target** | Pre-compiled Rust `std`/`core` for the target arch — lets `rustc` produce object files | `rustup target add <target>` |
+| **C cross-compiler/linker** | The linker that combines object files into a final binary, plus a C compiler for any C dependencies | `sudo apt install <package>` (see table below) |
+| **Tizen sysroot (rootstrap)** | Target platform's headers and libraries (`libc`, `libpthread`, Tizen APIs) — makes the binary link against Tizen's libraries instead of the host's | Tizen SDK rootstrap packages + `cargo tizen setup` |
+
+### Host packages per architecture
+
+| Arch | Rust target | apt package | Linker binary |
+|------|------------|-------------|---------------|
+| `armv7l` | `armv7-unknown-linux-gnueabi` | `gcc-arm-linux-gnueabi` | `arm-linux-gnueabi-gcc` |
+| `aarch64` | `aarch64-unknown-linux-gnu` | `gcc-aarch64-linux-gnu` | `aarch64-linux-gnu-gcc` |
+
+Install everything for both architectures:
+
+```bash
+# Rust targets
+rustup target add armv7-unknown-linux-gnueabi aarch64-unknown-linux-gnu
+
+# C cross-compilers/linkers
+sudo apt install gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
+```
+
+### Other tools
+
+- `rpmbuild` (from `rpm-build`) — only needed for `cargo tizen rpm`
+- Tizen SDK with matching rootstrap packages for your target profile/version
 
 SDK detection order:
 1. `setup --sdk-root <path>`

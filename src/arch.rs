@@ -20,6 +20,7 @@ pub struct ArchMap {
     pub rpm_build_arch: &'static str,
     pub rootstrap_type: &'static str,
     pub default_linker: &'static str,
+    pub linker_apt_package: &'static str,
 }
 
 impl Arch {
@@ -34,6 +35,7 @@ impl Arch {
                 rpm_build_arch: "armv7l",
                 rootstrap_type: "device",
                 default_linker: "arm-linux-gnueabi-gcc",
+                linker_apt_package: "gcc-arm-linux-gnueabi",
             },
             Arch::Aarch64 => ArchMap {
                 rust_target: "aarch64-unknown-linux-gnu",
@@ -42,6 +44,7 @@ impl Arch {
                 rpm_build_arch: "aarch64",
                 rootstrap_type: "device64",
                 default_linker: "aarch64-linux-gnu-gcc",
+                linker_apt_package: "gcc-aarch64-linux-gnu",
             },
         }
     }

@@ -80,6 +80,32 @@ pub fn build_rpm(
             .arg("__brp_strip_static_archive /bin/true")
             .arg("--define")
             .arg("__brp_strip_comment_note /bin/true");
+
+        // rpmbuild refuses to build for a foreign architecture unless the
+        // host arch is listed as compatible via buildarch_compat.  Generate a
+        // small rpmrc override inside the build tree and chain it after the
+        // system default so the target arch is accepted.
+        let host_rpm_arch = host_rpm_arch();
+        let rpmrc_path = topdir.join("cross.rpmrc");
+        fs::write(
+            &rpmrc_path,
+            format!("buildarch_compat: {}: {}\n", host_rpm_arch, rpm_arch),
+        )
+        .with_context(|| {
+            format!(
+                "failed to write cross-build rpmrc at {}",
+                rpmrc_path.display()
+            )
+        })?;
+        ctx.debug(format!(
+            "using cross-build rpmrc: {} (buildarch_compat: {}: {})",
+            rpmrc_path.display(),
+            host_rpm_arch,
+            rpm_arch
+        ));
+        command
+            .arg("--rcfile")
+            .arg(format!("/usr/lib/rpm/rpmrc:{}", rpmrc_path.display()));
     }
 
     if let Some(out) = output_override {
@@ -108,6 +134,18 @@ fn is_cross_rpm_build(target_arch: Arch) -> bool {
     match Arch::parse(std::env::consts::ARCH) {
         Some(host_arch) => host_arch != target_arch,
         None => true,
+    }
+}
+
+/// Map the Rust `std::env::consts::ARCH` value to the RPM architecture name
+/// used in rpmrc `buildarch_compat` entries.
+fn host_rpm_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "x86" | "i686" | "i586" | "i386" => "i686",
+        "aarch64" | "arm64" => "aarch64",
+        "arm" | "armv7l" | "armv7" => "armv7l",
+        other => other, // pass through as-is for unknown hosts
     }
 }
 

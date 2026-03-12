@@ -45,6 +45,14 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
     }
     if which::which("rpmbuild").is_ok() {
         host.ok("rpmbuild");
+        // Inform user about cross-arch RPM buildarch_compat handling
+        let host_arch = Arch::parse(std::env::consts::ARCH);
+        let has_cross_target = Arch::all()
+            .iter()
+            .any(|a| host_arch.map_or(true, |h| h != *a));
+        if has_cross_target {
+            host.ok("cross-arch RPM: buildarch_compat will be applied automatically");
+        }
     } else {
         host.warn("rpmbuild not found (install rpm-build) — only needed for cargo tizen rpm");
     }

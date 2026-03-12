@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -30,6 +31,12 @@ struct CargoManifest {
 struct ManifestPackage {
     name: String,
     version: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SigningProfileSource {
+    Cli,
+    Config,
 }
 
 pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
@@ -185,14 +192,27 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
     })?;
     ensure_executable_mode(&packaged_binary)?;
 
-    let resolved_sign = args.sign.as_deref().or_else(|| ctx.config.tpk_sign());
+    let (resolved_sign, sign_source) =
+        resolve_signing_profile(args.sign.as_deref(), ctx.config.tpk_sign());
 
+    ctx.info(describe_signing_profile(resolved_sign, sign_source));
     ctx.info(format!(
         "running tizen package -t tpk for {} profile={} platform-version={} (output: {})",
         arch,
         resolved_profile,
         platform_version,
         output_dir.display()
+    ));
+    ctx.info(format!(
+        "packaging command: {}",
+        render_tizen_package_command(
+            &ctx.workspace_root,
+            &tizen_cli,
+            resolved_sign,
+            args,
+            &output_dir,
+            &build_output_dir,
+        )
     ));
     run_tizen_package(
         ctx,
@@ -216,6 +236,95 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         tpk_files: tpks,
         manifest_path,
     })
+}
+
+fn resolve_signing_profile<'a>(
+    cli_sign: Option<&'a str>,
+    config_sign: Option<&'a str>,
+) -> (Option<&'a str>, Option<SigningProfileSource>) {
+    if let Some(sign) = cli_sign {
+        (Some(sign), Some(SigningProfileSource::Cli))
+    } else if let Some(sign) = config_sign {
+        (Some(sign), Some(SigningProfileSource::Config))
+    } else {
+        (None, None)
+    }
+}
+
+fn describe_signing_profile(sign: Option<&str>, source: Option<SigningProfileSource>) -> String {
+    match (sign, source) {
+        (Some(sign), Some(SigningProfileSource::Cli)) => {
+            format!("using signing profile `{sign}` from --sign")
+        }
+        (Some(sign), Some(SigningProfileSource::Config)) => {
+            format!("using signing profile `{sign}` from config")
+        }
+        (Some(sign), None) => format!("using signing profile `{sign}`"),
+        (None, _) => {
+            "no signing profile configured; relying on Tizen CLI default profile selection"
+                .to_string()
+        }
+    }
+}
+
+fn render_tizen_package_command(
+    workspace_root: &Path,
+    tizen_cli: &Path,
+    sign: Option<&str>,
+    args: &TpkArgs,
+    output_dir: &Path,
+    build_output_dir: &Path,
+) -> String {
+    let mut parts = vec![
+        tizen_cli.as_os_str(),
+        OsStr::new("package"),
+        OsStr::new("-t"),
+        OsStr::new("tpk"),
+    ];
+    if let Some(sign) = sign {
+        parts.push(OsStr::new("-s"));
+        parts.push(OsStr::new(sign));
+    }
+    if let Some(reference) = &args.reference {
+        parts.push(OsStr::new("-r"));
+        parts.push(reference.as_os_str());
+    }
+    if let Some(extra_dir) = &args.extra_dir {
+        parts.push(OsStr::new("-e"));
+        parts.push(extra_dir.as_os_str());
+    }
+    parts.push(OsStr::new("-o"));
+    parts.push(output_dir.as_os_str());
+    parts.push(OsStr::new("--"));
+    parts.push(build_output_dir.as_os_str());
+
+    format!(
+        "cd {} && {}",
+        shell_escape(workspace_root.as_os_str()),
+        render_shell_command(&parts)
+    )
+}
+
+fn render_shell_command(parts: &[&OsStr]) -> String {
+    parts
+        .iter()
+        .map(|part| shell_escape(part))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn shell_escape(value: &OsStr) -> String {
+    let value = value.to_string_lossy();
+    if !value.is_empty()
+        && value.chars().all(|ch| {
+            ch.is_ascii_alphanumeric()
+                || matches!(ch, '_' | '-' | '.' | '/' | ':' | '=' | '@' | '%' | '+')
+        })
+    {
+        value.into_owned()
+    } else {
+        format!("'{}'", value.replace('\'', r#"'\''"#))
+    }
 }
 
 fn manifest_package(path: &Path) -> Result<ManifestPackage> {
@@ -619,9 +728,14 @@ fn extract_attr_from_tag(xml: &str, tag: &str, attr: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ManifestPackage, extract_attr_from_tag, normalize_manifest_version,
-        render_default_manifest, sanitize_identifier_segment, tizen_template_profile_name,
+        ManifestPackage, SigningProfileSource, describe_signing_profile, extract_attr_from_tag,
+        normalize_manifest_version, render_default_manifest, render_shell_command,
+        render_tizen_package_command, resolve_signing_profile, sanitize_identifier_segment,
+        shell_escape, tizen_template_profile_name,
     };
+    use crate::cli::TpkArgs;
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn xml_attr_parser_handles_spaces_and_quotes() {
@@ -688,5 +802,71 @@ mod tests {
     fn template_profile_name_is_normalized() {
         assert_eq!(tizen_template_profile_name("10.0"), "tizen-10.0");
         assert_eq!(tizen_template_profile_name("tizen-9.0"), "tizen-9.0");
+    }
+
+    #[test]
+    fn signing_profile_resolution_prefers_cli_over_config() {
+        let (sign, source) = resolve_signing_profile(Some("cli_profile"), Some("config_profile"));
+        assert_eq!(sign, Some("cli_profile"));
+        assert_eq!(source, Some(SigningProfileSource::Cli));
+
+        let (sign, source) = resolve_signing_profile(None, Some("config_profile"));
+        assert_eq!(sign, Some("config_profile"));
+        assert_eq!(source, Some(SigningProfileSource::Config));
+    }
+
+    #[test]
+    fn signing_profile_description_is_explicit() {
+        assert_eq!(
+            describe_signing_profile(Some("tv_dev"), Some(SigningProfileSource::Config)),
+            "using signing profile `tv_dev` from config"
+        );
+        assert_eq!(
+            describe_signing_profile(None, None),
+            "no signing profile configured; relying on Tizen CLI default profile selection"
+        );
+    }
+
+    #[test]
+    fn shell_command_rendering_quotes_paths_and_values() {
+        let rendered = render_shell_command(&[
+            Path::new("/opt/tizen studio/tools/ide/bin/tizen").as_os_str(),
+            OsStr::new("package"),
+            OsStr::new("-s"),
+            OsStr::new("tv dev"),
+        ]);
+        assert_eq!(
+            rendered,
+            "'/opt/tizen studio/tools/ide/bin/tizen' package -s 'tv dev'"
+        );
+        assert_eq!(shell_escape(OsStr::new("it's")), "'it'\\''s'");
+    }
+
+    #[test]
+    fn packaging_command_preview_includes_workspace_and_optional_args() {
+        let args = TpkArgs {
+            arch: None,
+            cargo_release: false,
+            no_build: false,
+            manifest: None,
+            output: None,
+            sign: None,
+            reference: Some(PathBuf::from("ref dir")),
+            extra_dir: Some(PathBuf::from("extra")),
+        };
+
+        let rendered = render_tizen_package_command(
+            Path::new("/work/app"),
+            Path::new("/opt/tizen-studio/tools/ide/bin/tizen"),
+            Some("tv_dev"),
+            &args,
+            Path::new("/tmp/tpk out"),
+            Path::new("/tmp/build"),
+        );
+
+        assert_eq!(
+            rendered,
+            "cd /work/app && /opt/tizen-studio/tools/ide/bin/tizen package -t tpk -s tv_dev -r 'ref dir' -e extra -o '/tmp/tpk out' -- /tmp/build"
+        );
     }
 }

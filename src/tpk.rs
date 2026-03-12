@@ -424,7 +424,7 @@ fn render_default_manifest(
     platform_version: &str,
 ) -> String {
     let id_segment = sanitize_identifier_segment(&package.name);
-    let package_id = format!("org.rust.{id_segment}");
+    let package_id = format!("org.tizen.{id_segment}");
     let manifest_version = normalize_manifest_version(&package.version);
     format!(
         r#"<?xml version="1.0" encoding="utf-8"?>
@@ -773,8 +773,8 @@ mod tests {
             version: "0.9.2-beta.1".to_string(),
         };
         let manifest = render_default_manifest(&package, "tizen", "10.0");
-        assert!(manifest.contains(r#"package="org.rust.my_app""#));
-        assert!(manifest.contains(r#"appid="org.rust.my_app""#));
+        assert!(manifest.contains(r#"package="org.tizen.my_app""#));
+        assert!(manifest.contains(r#"appid="org.tizen.my_app""#));
         assert!(manifest.contains(r#"version="0.9.2""#));
         assert!(manifest.contains(r#"api-version="10.0""#));
         assert!(manifest.contains(r#"profile name="tizen""#));

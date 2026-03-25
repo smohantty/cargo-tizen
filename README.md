@@ -32,8 +32,14 @@ cargo tizen --help
 ### 1. Rust cross-compilation targets
 
 ```bash
-rustup target add armv7-unknown-linux-gnueabi aarch64-unknown-linux-gnu
+rustup target add armv7-unknown-linux-gnueabi armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
 ```
+
+For `armv7l`, install both ARM Rust targets. With the default rootstrap provider, `cargo-tizen`
+inspects the selected rootstrap headers and uses:
+
+- `armv7-unknown-linux-gnueabi` when the sysroot exposes `stubs-soft.h`
+- `armv7-unknown-linux-gnueabihf` when the sysroot exposes `stubs-hard.h`
 
 ### 2. C cross-compilers (linkers)
 
@@ -52,13 +58,15 @@ Install either [Tizen Studio](https://developer.tizen.org/development/tizen-stud
 
 Then install rootstrap packages for your target profile and platform version through the SDK Package Manager.
 
-`cargo-tizen` finds the SDK automatically. Detection order:
+`cargo-tizen` finds the SDK automatically from:
 
-1. `--sdk-root` flag
-2. `[sdk].root` in `.cargo-tizen.toml`
-3. `TIZEN_SDK` environment variable
-4. Parent directory of `sdb` on `PATH`
-5. Default locations (`~/tizen-studio`, `~/.tizen-extension-platform/...`)
+1. `[sdk].root` in `.cargo-tizen.toml`
+2. `TIZEN_SDK` environment variable
+3. Parent directory of `sdb` on `PATH`
+4. Default locations (`~/tizen-studio`, `~/.tizen-extension-platform/...`)
+
+If auto-detection fails, either set `[sdk].root` / `TIZEN_SDK`, or run `cargo tizen setup --sdk-root /path/to/sdk`
+to override the SDK location while preparing the sysroot cache. `--sdk-root` is a `setup` flag, not a global flag.
 
 ### 4. rpmbuild (only for RPM packaging)
 
@@ -79,13 +87,21 @@ sudo pacman -S rpm-tools
 cargo tizen doctor
 ```
 
-This checks all tools, SDK, rootstraps, linkers, Rust targets, and sysroot cache. Fix issues automatically:
+This checks all tools, SDK, rootstraps, linkers, Rust targets, and sysroot cache. To repair missing Rust targets and
+sysroots:
 
 ```bash
 cargo tizen fix
 ```
 
+`cargo tizen fix` can install missing Rust targets and prepare missing sysroots. If `doctor` reports a missing SDK,
+missing linker, or other host-tool issue, fix that manually and rerun `cargo tizen doctor`.
+
 ## Quick Start
+
+RPM, TPK, and `run` currently assume the built binary lives at
+`<target-dir>/<rust-target>/<debug|release>/<package-name>`. Projects with a custom `[[bin]]` name or multiple
+binaries should make sure the packaged binary name matches `[package].name` in `Cargo.toml`.
 
 ### Cross-build
 
@@ -196,7 +212,8 @@ See [doc/commands.md](doc/commands.md) for full flag reference.
 ## Troubleshooting
 
 **Doctor says SDK is missing:**
-Install Tizen SDK, set `TIZEN_SDK` or `[sdk].root`, then rerun `cargo tizen doctor`.
+Install Tizen SDK, set `TIZEN_SDK` or `[sdk].root`, or rerun `cargo tizen setup --sdk-root /path/to/tizen-studio`,
+then rerun `cargo tizen doctor`.
 
 **Setup fails with rootstrap missing:**
 Install matching rootstrap packages in Tizen SDK Package Manager for your target profile and platform version.

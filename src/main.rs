@@ -10,6 +10,7 @@ mod device;
 mod doctor;
 mod fix;
 mod output;
+mod packaging;
 mod rpm;
 mod run_cmd;
 mod rust_target;

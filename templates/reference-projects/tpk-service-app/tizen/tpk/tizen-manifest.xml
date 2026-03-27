@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns="http://tizen.org/ns/packages" package="org.example.helloservice" version="0.1.0" api-version="10.0">
+    <profile name="mobile" />
+    <service-application appid="org.example.helloservice" exec="hello-service" type="capp" multiple="false" taskmanage="false">
+        <label>Hello Service</label>
+    </service-application>
+</manifest>
+

@@ -79,18 +79,21 @@ Rust target note:
 Generate RPM from built binary.
 
 ```sh
-cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]
+cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--no-build]
 ```
 
 Current behavior:
 
+- Looks for the spec at `<packaging-dir>/rpm/<cargo-package-name>.spec`.
+- Default packaging root is `<workspace>/tizen`.
+- If the spec is missing, the command fails and prints the expected path plus the `--packaging-dir` escape hatch.
 - Staging expects the built binary path `<target-dir>/<rust-target>/<profile>/<package-name>`.
 
 Examples:
 
 ```sh
 cargo tizen rpm -A armv7l --cargo-release
-cargo tizen rpm -A aarch64 --cargo-release --release 3
+cargo tizen rpm -A aarch64 --cargo-release --packaging-dir ./packaging
 cargo tizen rpm -A armv7l --no-build
 ```
 
@@ -113,6 +116,7 @@ Notes:
 
 - `cargo tizen doctor` checks both `armv7l` and `aarch64`.
 - `cargo tizen doctor -A <arch>` checks one architecture.
+- `doctor` reports the current packaging root plus missing/present RPM spec and TPK manifest files for the active project.
 - For rootstrap provider, doctor reports installed SDK coverage grouped by `--platform-version/--profile` with supported architecture summary.
 - Default doctor output is concise; use `cargo tizen -v doctor` for detailed per-check path output.
 - Missing `rpmbuild` is reported as a warning (it is required only for `cargo tizen rpm`).
@@ -144,23 +148,24 @@ cargo tizen fix -A armv7l
 Package as TPK using Tizen CLI.
 
 ```sh
-cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]
+cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build]
 ```
 
 Notes:
 
-- Uses `tizen-manifest.xml` from:
-  - `--manifest <path>` when provided
-  - `<workspace>/tizen-manifest.xml`
-  - `<workspace>/tizen/tizen-manifest.xml`
-- If no manifest is found, auto-generates a minimal manifest in staging for the current run.
+- Looks for the manifest at `<packaging-dir>/tpk/tizen-manifest.xml`.
+- Default packaging root is `<workspace>/tizen`.
+- Optional directories:
+  - `<packaging-dir>/tpk/reference` maps to `tizen package -r`
+  - `<packaging-dir>/tpk/extra` maps to `tizen package -e`
+- If the manifest is missing, the command fails and prints the expected path plus the `--packaging-dir` escape hatch.
 - Staging expects the built binary path `<target-dir>/<rust-target>/<profile>/<package-name>`.
 
 Examples:
 
 ```sh
-cargo tizen tpk -A armv7l --cargo-release --manifest ./tizen-manifest.xml
-cargo tizen tpk -A aarch64 --no-build --manifest ./tizen/tizen-manifest.xml
+cargo tizen tpk -A armv7l --cargo-release
+cargo tizen tpk -A aarch64 --no-build --packaging-dir ./packaging
 ```
 
 ## `devices`
@@ -188,12 +193,13 @@ cargo tizen devices --all
 Package, install, and launch on a connected device.
 
 ```sh
-cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]
+cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>] [--app-id <id>]
 ```
 
 Behavior:
 
-- If `--tpk` is omitted, `cargo-tizen` builds/packages a TPK first.
+- `run` is TPK-only.
+- If `--tpk` is omitted, `cargo-tizen` builds/packages a TPK first using the same packaging layout as `cargo tizen tpk`.
 - If one ready device exists, it is auto-selected.
 - If multiple ready devices exist, `-d/--device` is required.
 - Install uses `sdb -s <id> install <tpk>`.
@@ -204,8 +210,8 @@ Behavior:
 Examples:
 
 ```sh
-cargo tizen run -A armv7l --cargo-release --manifest ./tizen-manifest.xml
-cargo tizen run -A aarch64 -d 192.168.0.101:26101 --cargo-release --manifest ./tizen-manifest.xml
+cargo tizen run -A armv7l --cargo-release
+cargo tizen run -A aarch64 -d 192.168.0.101:26101 --cargo-release --packaging-dir ./packaging
 cargo tizen run -A armv7l --tpk ./build/app.tpk --app-id org.example.app -d <device-id>
 ```
 

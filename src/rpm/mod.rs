@@ -4,10 +4,10 @@ use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, RpmArgs};
 use crate::context::AppContext;
+use crate::packaging::PackagingLayout;
 use crate::rust_target;
 
 mod rpmbuild;
-mod spec;
 mod stage;
 
 pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
@@ -39,38 +39,13 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
     } else {
         "debug"
     };
-    let rpmbuild_root = ctx
-        .workspace_root
-        .join("target")
-        .join("tizen")
-        .join(arch.as_str())
-        .join(profile_dir)
-        .join("rpmbuild");
     let rpm_arch = ctx.config.rpm_build_arch_for(arch);
-
-    let spec_path = if let Some(path) = &args.spec {
-        path.clone()
-    } else {
-        let generated_spec = rpmbuild_root
-            .join("SPECS")
-            .join(format!("{}.spec", stage.package.name));
-        let input = spec::SpecInput {
-            package_name: stage.package.name.clone(),
-            version: stage.package.version.clone(),
-            release: args.release.clone(),
-            summary: format!("{} packaged by cargo-tizen", stage.package.name),
-            license: ctx
-                .config
-                .rpm
-                .license
-                .clone()
-                .unwrap_or_else(|| "Apache-2.0".to_string()),
-            rpm_arch: rpm_arch.clone(),
-            binary_name: stage.package.name.clone(),
-        };
-        spec::write_spec(&generated_spec, &input)?;
-        generated_spec
-    };
+    let packaging_root = args
+        .packaging_dir
+        .clone()
+        .or_else(|| ctx.config.packaging_dir());
+    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
+    let spec_path = packaging.resolve_rpm_spec(&stage.package.name)?;
 
     let rpms = rpmbuild::build_rpm(
         ctx,

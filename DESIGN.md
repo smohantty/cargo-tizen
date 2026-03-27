@@ -129,7 +129,7 @@ Behavior:
 ## 4.4 `rpm`
 
 ```bash
-cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--release <n>] [--spec <path>] [--output <dir>] [--no-build]
+cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--no-build]
 ```
 
 Purpose:
@@ -137,7 +137,8 @@ Purpose:
 
 Behavior:
 - Stage artifacts.
-- Generate spec if missing.
+- Load authored spec from `<packaging-dir>/rpm/<cargo-package-name>.spec`.
+- Fail with an explicit gap message if the spec is missing.
 - Invoke `rpmbuild` with an isolated `_topdir`.
 - Emit resulting RPM path(s).
 
@@ -159,13 +160,14 @@ Behavior:
 ## 4.6 `run`
 
 ```bash
-cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build] [--tpk <path>] [--app-id <id>]
+cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>] [--app-id <id>]
 ```
 
 Purpose:
 - Build/package (or reuse a prebuilt TPK), install to a device, and launch the app.
 
 Behavior:
+- `run` is TPK-only.
 - If `--tpk` is omitted, runs the TPK packaging backend first.
 - Auto-selects device when exactly one ready Tizen device is connected.
 - Requires `-d/--device` when multiple devices are ready.
@@ -186,6 +188,7 @@ cargo tizen doctor [-A <armv7l|aarch64>]
 
 Checks:
 - Required executables (`cargo`, `rustc`, `rustup`, linker; `rpmbuild` reported as warning unless RPM packaging is needed).
+- Packaging root plus current-project RPM/TPK file presence.
 - Tizen SDK detection (`TIZEN_SDK`, `sdb`, extension/CLI default locations).
 - Rust targets installed (both `armv7l` and `aarch64` when `-A` is omitted).
 - Rootstrap availability for selected profile/version/arch.
@@ -235,7 +238,7 @@ Behavior:
 ## 4.11 `tpk`
 
 ```bash
-cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--manifest <path>] [--output <dir>] [--sign <profile>] [--reference <path>] [--extra-dir <path>] [--no-build]
+cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build]
 ```
 
 Purpose:
@@ -243,7 +246,9 @@ Purpose:
 
 Behavior:
 - Stages binary and `tizen-manifest.xml`.
-- Uses explicit/default `tizen-manifest.xml` when present; otherwise auto-generates a minimal manifest in staging for the current run.
+- Loads authored manifest from `<packaging-dir>/tpk/tizen-manifest.xml`.
+- Uses optional `<packaging-dir>/tpk/reference` and `<packaging-dir>/tpk/extra` directories when present.
+- Fails with an explicit gap message if the manifest is missing.
 - Invokes `tizen package -t tpk`.
 - Emits generated `.tpk` path(s).
 
@@ -277,6 +282,7 @@ arch = "armv7l"
 profile = "mobile"
 platform_version = "10.0"
 provider = "rootstrap"
+packaging_dir = "./packaging"
 
 [arch.armv7l]
 rust_target = "armv7-unknown-linux-gnueabi"
@@ -309,19 +315,10 @@ sign = "my_profile"
 Cargo project metadata extension:
 
 ```toml
-[package.metadata.tizen]
-name = "my-app"
-release = "1"
-summary = "My Tizen app"
-
-[[package.metadata.tizen.install]]
-source = "target-binary"
-dest = "/usr/bin/my-app"
-mode = "0755"
 ```
 
 Note:
-- `package.metadata.tizen` is currently documented as planned schema; the current implementation does not consume this metadata yet.
+- `package.metadata.tizen` is still planned, but the current packaging implementation is driven by authored files under the packaging root (`tizen/` by default), not by Cargo metadata.
 
 
 ## 6. Sysroot Provider and Cache
@@ -440,8 +437,8 @@ Given `cargo tizen rpm -A aarch64`:
 2. Create staging root: `target/tizen/<arch>/<debug|release>/stage/`.
 3. Copy built binary to `/usr/bin/<package_name>` in staging.
 4. Resolve spec:
-   - use `--spec` if provided
-   - otherwise generate via built-in minimal spec renderer
+   - `<packaging-dir>/rpm/<cargo-package-name>.spec`
+   - fail if it does not exist
 5. Prepare rpmbuild tree:
    - `target/tizen/<arch>/<debug|release>/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}`
 6. Invoke:
@@ -453,11 +450,6 @@ Default `rpm_arch` mapping:
 - `armv7l` -> `armv7l` (config-overridable)
 - `aarch64` -> `aarch64` (config-overridable)
 
-Spec generation minimum fields:
-- `Name`, `Version`, `Release`, `Summary`, `License`
-- `%description`
-- `%files`
-
 ## 8.1 TPK Packaging Pipeline
 
 Given `cargo tizen tpk -A aarch64`:
@@ -465,15 +457,13 @@ Given `cargo tizen tpk -A aarch64`:
 2. Create staging root: `target/tizen/<arch>/<debug|release>/tpk/root/`.
 3. Stage application binary to `bin/<package_name>`.
 4. Stage `tizen-manifest.xml` from:
-   - `--manifest` if provided
-   - `<workspace>/tizen-manifest.xml`
-   - `<workspace>/tizen/tizen-manifest.xml`
-   - otherwise generate default manifest in staging
+   - `<packaging-dir>/tpk/tizen-manifest.xml`
+   - fail if it does not exist
 5. Invoke:
    - `tizen package -t tpk -o <output_dir> -- <staging_root>`
    - optional `-s <sign_profile>`
-   - optional `-r <reference>`
-   - optional `-e <extra_dir>`
+   - optional `-r <packaging-dir>/tpk/reference`
+   - optional `-e <packaging-dir>/tpk/extra`
 6. Emit generated `.tpk` artifact path(s).
 
 Notes:
@@ -586,11 +576,12 @@ src/
     repo.rs
   rpm/
     mod.rs
-    spec.rs
     stage.rs
     rpmbuild.rs
+  packaging.rs
 templates/
-  tizen.spec.hbs
+  README.md
+  reference-projects/
 tests/
   integration_setup.rs
   integration_build.rs
@@ -617,7 +608,7 @@ tests/
 - Verify cross-compiled binaries for both arches.
 
 ## Milestone 4: RPM
-- Add staging + spec generation + rpmbuild invocation.
+- Add staging + authored-spec loading + rpmbuild invocation.
 - Produce installable RPM artifacts.
 
 ## Milestone 5: Hardening
@@ -629,7 +620,7 @@ tests/
 
 - Should `setup` auto-install missing Rust targets (`rustup target add`) or only suggest commands?
 - Should `repo` provider be implemented next or replaced by a GBS-first provider?
-- When should `package.metadata.tizen` be wired into staging/spec generation?
+- When should `package.metadata.tizen` be wired into packaging validation or templating, if ever?
 - Whether to support a `gbs` backend in Phase 1 or defer to Phase 2.
 
 
@@ -638,8 +629,8 @@ tests/
 Smallest useful vertical slice:
 1. `cargo tizen setup -A <arch>` with local cache + validation stub.
 2. `cargo tizen build -A <arch>` using fixed linker/sysroot from config.
-3. `cargo tizen rpm -A <arch>` with generated minimal spec and `rpmbuild`.
-4. `cargo tizen tpk -A <arch>` with staged binary + `tizen-manifest.xml` packaging.
+3. `cargo tizen rpm -A <arch>` with authored spec and `rpmbuild`.
+4. `cargo tizen tpk -A <arch>` with staged binary + authored `tizen-manifest.xml` packaging.
 
 This slice is enough to prove the full workflow and then iterate on provider quality and packaging richness.
 

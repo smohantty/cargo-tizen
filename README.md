@@ -94,7 +94,8 @@ sysroots:
 cargo tizen fix
 ```
 
-`cargo tizen fix` can install missing Rust targets and prepare missing sysroots. If `doctor` reports a missing SDK,
+`cargo tizen fix` can install missing Rust targets and prepare missing sysroots. `cargo tizen doctor` also reports
+whether the current project has the expected RPM spec and TPK manifest layout. If `doctor` reports a missing SDK,
 missing linker, or other host-tool issue, fix that manually and rerun `cargo tizen doctor`.
 
 ## Quick Start
@@ -122,7 +123,7 @@ cargo tizen rpm -A armv7l --cargo-release
 cargo tizen tpk -A armv7l --cargo-release
 ```
 
-If no `tizen-manifest.xml` is found, a minimal one is auto-generated.
+This expects an authored manifest at `tizen/tpk/tizen-manifest.xml`.
 
 ### Deploy to device
 
@@ -133,6 +134,44 @@ cargo tizen devices
 # Build, package, install, and launch
 cargo tizen run -A armv7l --cargo-release
 ```
+
+## Packaging Layout
+
+By default, packaging files live under `tizen/`:
+
+```text
+tizen/
+  rpm/
+    <cargo-package-name>.spec
+  tpk/
+    tizen-manifest.xml
+    reference/
+    extra/
+```
+
+`cargo-tizen` does not auto-generate missing spec or manifest files.
+
+For a non-standard layout, point commands at a different packaging root:
+
+```bash
+cargo tizen rpm --packaging-dir ./packaging
+cargo tizen tpk --packaging-dir ./packaging
+cargo tizen run --packaging-dir ./packaging
+```
+
+You can persist that root in `.cargo-tizen.toml`:
+
+```toml
+[default]
+packaging_dir = "./packaging"
+```
+
+Reference projects live in:
+
+- `templates/reference-projects/rpm-app`
+- `templates/reference-projects/tpk-service-app`
+
+See [doc/packaging-layout.md](doc/packaging-layout.md) for the full layout contract and migration notes.
 
 ## Architecture Selection
 
@@ -161,6 +200,7 @@ Full example:
 arch = "armv7l"
 profile = "mobile"
 platform_version = "10.0"
+packaging_dir = "./packaging"
 
 [sdk]
 root = "/path/to/tizen-studio"
@@ -171,6 +211,13 @@ linker = "arm-linux-gnueabi-gcc"
 [arch.aarch64]
 linker = "aarch64-linux-gnu-gcc"
 ```
+
+## Current Packaging Gaps
+
+- Packaging assumes the built binary name matches `[package].name`.
+- Multi-bin and renamed-bin packaging are not implemented yet.
+- Workspace/member packaging is not implemented yet. Run packaging commands from a concrete package crate.
+- `run` is TPK-only.
 
 ## TPK Signing
 
@@ -230,6 +277,7 @@ Check `sdb devices` shows your target as `device`. For network devices: `sdb con
 - [Tizen SDK setup](doc/install-tizen-sdk.md)
 - [Device configuration](doc/configure-device.md)
 - [Full command reference](doc/commands.md)
+- [Packaging layout](doc/packaging-layout.md)
 - [Packaging model](doc/packaging-model.md)
 
 ## Development

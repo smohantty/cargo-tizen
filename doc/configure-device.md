@@ -45,11 +45,17 @@ Expected ready status is `device`.
 ## 4. Run app on device
 
 ```sh
-cargo tizen run -A armv7l --cargo-release --manifest ./tizen-manifest.xml
+cargo tizen run -A armv7l --cargo-release
 ```
 
 If multiple devices are connected:
 
 ```sh
-cargo tizen run -A armv7l -d <device-id> --cargo-release --manifest ./tizen-manifest.xml
+cargo tizen run -A armv7l -d <device-id> --cargo-release
+```
+
+If your packaging files live outside the default `tizen/` layout:
+
+```sh
+cargo tizen run -A armv7l --cargo-release --packaging-dir ./packaging
 ```

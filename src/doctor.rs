@@ -7,6 +7,7 @@ use crate::arch::Arch;
 use crate::cli::DoctorArgs;
 use crate::context::AppContext;
 use crate::output::{Section, color_enabled, print_report};
+use crate::packaging::PackagingLayout;
 use crate::rust_target;
 use crate::sdk::TizenSdk;
 use crate::sysroot;
@@ -78,6 +79,8 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
         None => sdk_section.error_multiline(MISSING_SDK_GUIDANCE),
     }
     sections.push(sdk_section);
+
+    sections.push(build_packaging_section(ctx));
 
     // -- Rootstrap coverage --------------------------------------------------
 
@@ -262,6 +265,63 @@ fn build_rootstrap_coverage_section(ctx: &AppContext, arches: &[Arch]) -> Sectio
     }
 
     sec
+}
+
+fn build_packaging_section(ctx: &AppContext) -> Section {
+    let mut sec = Section::new("Packaging layout");
+    let manifest_path = ctx.workspace_root.join("Cargo.toml");
+
+    if !manifest_path.is_file() {
+        sec.warn("Cargo.toml not found in the current workspace root");
+        return sec;
+    }
+
+    let package_name = match current_package_name(&manifest_path) {
+        Ok(Some(name)) => name,
+        Ok(None) => {
+            sec.warn(
+                "workspace manifest detected; package/member packaging is not implemented yet",
+            );
+            return sec;
+        }
+        Err(err) => {
+            sec.warn(format!("failed to inspect Cargo.toml for packaging: {err}"));
+            return sec;
+        }
+    };
+
+    let packaging_root = ctx.config.packaging_dir();
+    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
+    sec.ok(format!("packaging root: {}", packaging.root().display()));
+
+    let rpm_spec = packaging.rpm_spec_path(&package_name);
+    if rpm_spec.is_file() {
+        sec.ok(format!("rpm spec: {}", rpm_spec.display()));
+    } else {
+        sec.warn(format!("rpm spec missing: {}", rpm_spec.display()));
+    }
+
+    let tpk_manifest = packaging.tpk_manifest_path();
+    if tpk_manifest.is_file() {
+        sec.ok(format!("tpk manifest: {}", tpk_manifest.display()));
+    } else {
+        sec.warn(format!("tpk manifest missing: {}", tpk_manifest.display()));
+    }
+
+    sec
+}
+
+fn current_package_name(path: &Path) -> Result<Option<String>> {
+    let raw = std::fs::read_to_string(path)?;
+    let parsed: toml::Value = toml::from_str(&raw)?;
+    if let Some(name) = parsed
+        .get("package")
+        .and_then(|value| value.get("name"))
+        .and_then(|value| value.as_str())
+    {
+        return Ok(Some(name.to_string()));
+    }
+    Ok(None)
 }
 
 fn version_sort_key(version: &str) -> (u64, u64) {

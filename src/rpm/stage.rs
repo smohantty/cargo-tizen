@@ -9,7 +9,6 @@ use crate::arch::Arch;
 #[derive(Debug, Clone)]
 pub struct PackageInfo {
     pub name: String,
-    pub version: String,
 }
 
 #[derive(Debug, Clone)]
@@ -27,7 +26,6 @@ struct CargoManifest {
 #[derive(Debug, Deserialize)]
 struct ManifestPackage {
     name: String,
-    version: String,
 }
 
 pub fn stage_binary_from_target_dir(
@@ -87,6 +85,5 @@ fn read_manifest_package(path: &Path) -> Result<PackageInfo> {
         .with_context(|| format!("failed to parse manifest {}", path.display()))?;
     Ok(PackageInfo {
         name: parsed.package.name,
-        version: parsed.package.version,
     })
 }

@@ -35,6 +35,7 @@ pub struct DefaultConfig {
     pub profile: Option<String>,
     pub platform_version: Option<String>,
     pub provider: Option<String>,
+    pub packaging_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -138,6 +139,10 @@ impl Config {
         }
     }
 
+    pub fn packaging_dir(&self) -> Option<PathBuf> {
+        self.default.packaging_dir.as_deref().map(expand_tilde)
+    }
+
     pub fn linker_for(&self, arch: Arch) -> String {
         self.arch
             .get(arch.as_str())
@@ -229,6 +234,9 @@ impl DefaultConfig {
         }
         if other.provider.is_some() {
             self.provider = other.provider;
+        }
+        if other.packaging_dir.is_some() {
+            self.packaging_dir = other.packaging_dir;
         }
     }
 }

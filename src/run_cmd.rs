@@ -7,6 +7,7 @@ use crate::arch_detect;
 use crate::cli::{RunArgs, TpkArgs};
 use crate::context::AppContext;
 use crate::device;
+use crate::packaging::PackagingLayout;
 use crate::tpk;
 
 pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
@@ -28,11 +29,9 @@ pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
             arch: Some(selected_arch),
             cargo_release: args.cargo_release,
             no_build: args.no_build,
-            manifest: args.manifest.clone(),
+            packaging_dir: args.packaging_dir.clone(),
             output: args.output.clone(),
             sign: resolved_sign,
-            reference: args.reference.clone(),
-            extra_dir: args.extra_dir.clone(),
         };
         let packaged = tpk::package_tpk(ctx, &tpk_args)?;
         let chosen = choose_tpk(&packaged.tpk_files)?;
@@ -91,18 +90,15 @@ fn resolve_app_id(
         return Ok(app_id.clone());
     }
 
-    if let Some(manifest) = args.manifest.as_deref() {
-        return tpk::detect_app_id_from_manifest(manifest);
-    }
     if let Some(manifest) = packaged_manifest {
         return tpk::detect_app_id_from_manifest(manifest);
     }
 
-    if let Ok(default_manifest) = tpk::resolve_manifest_path(&ctx.workspace_root, None) {
-        return tpk::detect_app_id_from_manifest(&default_manifest);
-    }
-
-    bail!(
-        "unable to determine app id. pass --app-id <id> or --manifest <path-to-tizen-manifest.xml>"
-    )
+    let packaging_root = args
+        .packaging_dir
+        .clone()
+        .or_else(|| ctx.config.packaging_dir());
+    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
+    let manifest = packaging.resolve_tpk_manifest()?;
+    return tpk::detect_app_id_from_manifest(&manifest);
 }

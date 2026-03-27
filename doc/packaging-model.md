@@ -35,15 +35,25 @@ RPM flow:
 1. Resolve rootstrap and prepare sysroot cache.
 2. Cross-build Rust binary with Cargo.
 3. Stage files.
-4. Generate spec (or use provided spec).
+4. Load an authored spec from the packaging layout.
 5. Build RPM via `rpmbuild`.
 
 TPK flow:
 
 1. Resolve rootstrap and prepare sysroot cache.
 2. Cross-build Rust binary with Cargo.
-3. Stage binary + `tizen-manifest.xml` (explicit/default manifest when present, otherwise auto-generate minimal manifest in staging).
+3. Stage binary + authored `tizen-manifest.xml` from the packaging layout.
 4. Invoke `tizen package -t tpk`.
+
+Current packaging layout:
+
+- Default packaging root: `<workspace>/tizen`
+- RPM spec: `<packaging-root>/rpm/<cargo-package-name>.spec`
+- TPK manifest: `<packaging-root>/tpk/tizen-manifest.xml`
+- Optional TPK reference dir: `<packaging-root>/tpk/reference`
+- Optional TPK extra dir: `<packaging-root>/tpk/extra`
+
+If the required packaging files are missing, `cargo-tizen` fails with a gap message instead of generating placeholder files.
 
 Run flow:
 

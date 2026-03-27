@@ -10,6 +10,7 @@ use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, TpkArgs};
 use crate::context::AppContext;
+use crate::packaging::PackagingLayout;
 use crate::rust_target;
 use crate::sdk::TizenSdk;
 use crate::sysroot;
@@ -30,7 +31,6 @@ struct CargoManifest {
 #[derive(Debug, Deserialize)]
 struct ManifestPackage {
     name: String,
-    version: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +67,11 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
     } else {
         "debug"
     };
+    let packaging_root = args
+        .packaging_dir
+        .clone()
+        .or_else(|| ctx.config.packaging_dir());
+    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
     let package = manifest_package(&ctx.workspace_root.join("Cargo.toml"))?;
     let package_name = package.name.clone();
     let source_binary = build_target_dir
@@ -75,8 +80,9 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         .join(&package_name);
     if !source_binary.is_file() {
         bail!(
-            "expected built binary was not found: {}",
-            source_binary.display()
+            "expected built binary was not found: {}\ncargo-tizen currently packages the binary named after [package].name (`{package_name}`)\ncurrent gap: multi-bin and renamed-bin packaging is not implemented yet\nreference project: {}",
+            source_binary.display(),
+            crate::packaging::TPK_REFERENCE_PROJECT,
         );
     }
 
@@ -96,14 +102,7 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         .with_context(|| format!("failed to create staging root {}", stage_root.display()))?;
 
     let staged_manifest = stage_root.join("tizen-manifest.xml");
-    let manifest_path = stage_manifest(
-        ctx,
-        &ctx.workspace_root,
-        args.manifest.as_deref(),
-        &staged_manifest,
-        arch,
-        &package,
-    )?;
+    let manifest_path = stage_manifest(&packaging, &staged_manifest)?;
 
     let output_dir = args.output.clone().unwrap_or_else(|| {
         ctx.workspace_root
@@ -194,6 +193,8 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
 
     let (resolved_sign, sign_source) =
         resolve_signing_profile(args.sign.as_deref(), ctx.config.tpk_sign());
+    let reference_dir = packaging.tpk_reference_dir()?;
+    let extra_dir = packaging.tpk_extra_dir()?;
 
     ctx.info(describe_signing_profile(resolved_sign, sign_source));
     ctx.info(format!(
@@ -209,7 +210,8 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
             &ctx.workspace_root,
             &tizen_cli,
             resolved_sign,
-            args,
+            reference_dir.as_deref(),
+            extra_dir.as_deref(),
             &output_dir,
             &build_output_dir,
         )
@@ -218,7 +220,8 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         ctx,
         &tizen_cli,
         resolved_sign,
-        args,
+        reference_dir.as_deref(),
+        extra_dir.as_deref(),
         &output_dir,
         &build_output_dir,
     )?;
@@ -271,7 +274,8 @@ fn render_tizen_package_command(
     workspace_root: &Path,
     tizen_cli: &Path,
     sign: Option<&str>,
-    args: &TpkArgs,
+    reference_dir: Option<&Path>,
+    extra_dir: Option<&Path>,
     output_dir: &Path,
     build_output_dir: &Path,
 ) -> String {
@@ -285,11 +289,11 @@ fn render_tizen_package_command(
         parts.push(OsStr::new("-s"));
         parts.push(OsStr::new(sign));
     }
-    if let Some(reference) = &args.reference {
+    if let Some(reference) = reference_dir {
         parts.push(OsStr::new("-r"));
         parts.push(reference.as_os_str());
     }
-    if let Some(extra_dir) = &args.extra_dir {
+    if let Some(extra_dir) = extra_dir {
         parts.push(OsStr::new("-e"));
         parts.push(extra_dir.as_os_str());
     }
@@ -335,126 +339,16 @@ fn manifest_package(path: &Path) -> Result<ManifestPackage> {
     Ok(parsed.package)
 }
 
-pub fn resolve_manifest_path(workspace_root: &Path, explicit: Option<&Path>) -> Result<PathBuf> {
-    if let Some(path) = explicit {
-        if path.is_file() {
-            return Ok(path.to_path_buf());
-        }
-        bail!("provided manifest path does not exist: {}", path.display());
-    }
-
-    let candidates = [
-        workspace_root.join("tizen-manifest.xml"),
-        workspace_root.join("tizen").join("tizen-manifest.xml"),
-    ];
-    for candidate in candidates {
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-
-    bail!(
-        "missing tizen-manifest.xml. provide --manifest <path> or place it at {} or {}",
-        workspace_root.join("tizen-manifest.xml").display(),
-        workspace_root
-            .join("tizen")
-            .join("tizen-manifest.xml")
-            .display()
-    )
-}
-
-fn stage_manifest(
-    ctx: &AppContext,
-    workspace_root: &Path,
-    explicit: Option<&Path>,
-    staged_manifest: &Path,
-    arch: crate::arch::Arch,
-    package: &ManifestPackage,
-) -> Result<PathBuf> {
-    if explicit.is_some() {
-        let manifest_path = resolve_manifest_path(workspace_root, explicit)?;
-        fs::copy(&manifest_path, staged_manifest).with_context(|| {
-            format!(
-                "failed to stage manifest {} -> {}",
-                manifest_path.display(),
-                staged_manifest.display()
-            )
-        })?;
-        return Ok(manifest_path);
-    }
-
-    if let Ok(manifest_path) = resolve_manifest_path(workspace_root, None) {
-        fs::copy(&manifest_path, staged_manifest).with_context(|| {
-            format!(
-                "failed to stage manifest {} -> {}",
-                manifest_path.display(),
-                staged_manifest.display()
-            )
-        })?;
-        return Ok(manifest_path);
-    }
-
-    let (profile, platform_version) = match sysroot::resolve_profile_platform_for_arch(ctx, arch) {
-        Ok(resolved) => resolved,
-        Err(err) => {
-            ctx.debug(format!(
-                "manifest profile/platform auto-detection failed: {}; falling back to config defaults",
-                err
-            ));
-            (ctx.config.profile(), ctx.config.platform_version())
-        }
-    };
-    let rendered = render_default_manifest(package, &profile, &platform_version);
-    fs::write(staged_manifest, rendered).with_context(|| {
+fn stage_manifest(packaging: &PackagingLayout, staged_manifest: &Path) -> Result<PathBuf> {
+    let manifest_path = packaging.resolve_tpk_manifest()?;
+    fs::copy(&manifest_path, staged_manifest).with_context(|| {
         format!(
-            "failed to write generated manifest {}",
+            "failed to stage manifest {} -> {}",
+            manifest_path.display(),
             staged_manifest.display()
         )
     })?;
-    ctx.info(format!(
-        "no tizen-manifest.xml found; generated default manifest at {}",
-        staged_manifest.display()
-    ));
-    Ok(staged_manifest.to_path_buf())
-}
-
-fn render_default_manifest(
-    package: &ManifestPackage,
-    profile: &str,
-    platform_version: &str,
-) -> String {
-    let id_segment = sanitize_identifier_segment(&package.name);
-    let package_id = format!("org.tizen.{id_segment}");
-    let manifest_version = normalize_manifest_version(&package.version);
-    format!(
-        r#"<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns="http://tizen.org/ns/packages" package="{package_id}" version="{manifest_version}" api-version="{platform_version}">
-    <profile name="{profile}" />
-    <service-application appid="{appid}" exec="{exec}" type="capp" multiple="false" taskmanage="false">
-        <label>{label}</label>
-    </service-application>
-    <privileges>
-        <privilege>http://tizen.org/privilege/appmanager.launch</privilege>
-        <privilege>http://tizen.org/privilege/filesystem.read</privilege>
-        <privilege>http://tizen.org/privilege/filesystem.write</privilege>
-        <privilege>http://tizen.org/privilege/network.get</privilege>
-        <privilege>http://tizen.org/privilege/network.set</privilege>
-        <privilege>http://tizen.org/privilege/internet</privilege>
-        <privilege>http://tizen.org/privilege/externalstorage</privilege>
-        <privilege>http://tizen.org/privilege/externalstorage.appdata</privilege>
-        <privilege>http://tizen.org/privilege/mediastorage</privilege>
-        <privilege>http://tizen.org/privilege/appdir.shareddata</privilege>
-    </privileges>
-</manifest>
-"#,
-        package_id = package_id,
-        manifest_version = manifest_version,
-        platform_version = platform_version,
-        label = package.name,
-        profile = profile,
-        appid = package_id,
-        exec = package.name,
-    )
+    Ok(manifest_path)
 }
 
 fn sanitize_identifier_segment(raw: &str) -> String {
@@ -481,26 +375,6 @@ fn sanitize_identifier_segment(raw: &str) -> String {
     }
 
     out.to_string()
-}
-
-fn normalize_manifest_version(raw: &str) -> String {
-    let core = raw.split(['-', '+']).next().unwrap_or("").trim();
-    let mut parts: Vec<u64> = core
-        .split('.')
-        .filter(|part| !part.is_empty())
-        .filter_map(|part| part.parse::<u64>().ok())
-        .collect();
-
-    if parts.is_empty() {
-        return "1.0.0".to_string();
-    }
-
-    while parts.len() < 3 {
-        parts.push(0);
-    }
-    parts.truncate(3);
-
-    format!("{}.{}.{}", parts[0], parts[1], parts[2])
 }
 
 fn create_temp_native_project(
@@ -578,7 +452,8 @@ fn run_tizen_package(
     ctx: &AppContext,
     tizen_cli: &Path,
     sign: Option<&str>,
-    args: &TpkArgs,
+    reference_dir: Option<&Path>,
+    extra_dir: Option<&Path>,
     output_dir: &Path,
     build_output_dir: &Path,
 ) -> Result<()> {
@@ -587,10 +462,10 @@ fn run_tizen_package(
     if let Some(sign) = sign {
         cmd.arg("-s").arg(sign);
     }
-    if let Some(reference) = &args.reference {
+    if let Some(reference) = reference_dir {
         cmd.arg("-r").arg(reference);
     }
-    if let Some(extra_dir) = &args.extra_dir {
+    if let Some(extra_dir) = extra_dir {
         cmd.arg("-e").arg(extra_dir);
     }
     cmd.arg("-o").arg(output_dir);
@@ -728,14 +603,12 @@ fn extract_attr_from_tag(xml: &str, tag: &str, attr: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ManifestPackage, SigningProfileSource, describe_signing_profile, extract_attr_from_tag,
-        normalize_manifest_version, render_default_manifest, render_shell_command,
-        render_tizen_package_command, resolve_signing_profile, sanitize_identifier_segment,
-        shell_escape, tizen_template_profile_name,
+        SigningProfileSource, describe_signing_profile, extract_attr_from_tag,
+        render_shell_command, render_tizen_package_command, resolve_signing_profile,
+        sanitize_identifier_segment, shell_escape, tizen_template_profile_name,
     };
-    use crate::cli::TpkArgs;
     use std::ffi::OsStr;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     #[test]
     fn xml_attr_parser_handles_spaces_and_quotes() {
@@ -767,35 +640,10 @@ mod tests {
     }
 
     #[test]
-    fn default_manifest_is_rendered_with_normalized_fields() {
-        let package = ManifestPackage {
-            name: "my-app".to_string(),
-            version: "0.9.2-beta.1".to_string(),
-        };
-        let manifest = render_default_manifest(&package, "tizen", "10.0");
-        assert!(manifest.contains(r#"package="org.tizen.my_app""#));
-        assert!(manifest.contains(r#"appid="org.tizen.my_app""#));
-        assert!(manifest.contains(r#"version="0.9.2""#));
-        assert!(manifest.contains(r#"api-version="10.0""#));
-        assert!(manifest.contains(r#"profile name="tizen""#));
-        assert!(manifest.contains("service-application"));
-        assert!(!manifest.contains("ui-application"));
-        assert!(manifest.contains("http://tizen.org/privilege/internet"));
-    }
-
-    #[test]
     fn identifier_segment_sanitization_is_stable() {
         assert_eq!(sanitize_identifier_segment("my-app"), "my_app");
         assert_eq!(sanitize_identifier_segment("99-app"), "app_99_app");
         assert_eq!(sanitize_identifier_segment("__"), "app");
-    }
-
-    #[test]
-    fn manifest_version_normalization_is_stable() {
-        assert_eq!(normalize_manifest_version("1"), "1.0.0");
-        assert_eq!(normalize_manifest_version("1.2"), "1.2.0");
-        assert_eq!(normalize_manifest_version("1.2.3-beta.1"), "1.2.3");
-        assert_eq!(normalize_manifest_version("abc"), "1.0.0");
     }
 
     #[test]
@@ -844,22 +692,12 @@ mod tests {
 
     #[test]
     fn packaging_command_preview_includes_workspace_and_optional_args() {
-        let args = TpkArgs {
-            arch: None,
-            cargo_release: false,
-            no_build: false,
-            manifest: None,
-            output: None,
-            sign: None,
-            reference: Some(PathBuf::from("ref dir")),
-            extra_dir: Some(PathBuf::from("extra")),
-        };
-
         let rendered = render_tizen_package_command(
             Path::new("/work/app"),
             Path::new("/opt/tizen-studio/tools/ide/bin/tizen"),
             Some("tv_dev"),
-            &args,
+            Some(Path::new("ref dir")),
+            Some(Path::new("extra")),
             Path::new("/tmp/tpk out"),
             Path::new("/tmp/build"),
         );

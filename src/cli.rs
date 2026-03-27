@@ -92,14 +92,11 @@ pub struct RpmArgs {
     )]
     pub arch: Option<Arch>,
 
-    #[arg(long, default_value = "1")]
-    pub release: String,
-
     #[arg(long)]
     pub cargo_release: bool,
 
-    #[arg(long)]
-    pub spec: Option<PathBuf>,
+    #[arg(long, help = "Packaging root. Defaults to <workspace>/tizen")]
+    pub packaging_dir: Option<PathBuf>,
 
     #[arg(long)]
     pub output: Option<PathBuf>,
@@ -123,20 +120,14 @@ pub struct TpkArgs {
     #[arg(long)]
     pub no_build: bool,
 
-    #[arg(long)]
-    pub manifest: Option<PathBuf>,
+    #[arg(long, help = "Packaging root. Defaults to <workspace>/tizen")]
+    pub packaging_dir: Option<PathBuf>,
 
     #[arg(long)]
     pub output: Option<PathBuf>,
 
     #[arg(long)]
     pub sign: Option<String>,
-
-    #[arg(long)]
-    pub reference: Option<PathBuf>,
-
-    #[arg(long)]
-    pub extra_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -163,20 +154,14 @@ pub struct RunArgs {
     #[arg(long)]
     pub no_build: bool,
 
-    #[arg(long)]
-    pub manifest: Option<PathBuf>,
+    #[arg(long, help = "Packaging root. Defaults to <workspace>/tizen")]
+    pub packaging_dir: Option<PathBuf>,
 
     #[arg(long)]
     pub output: Option<PathBuf>,
 
     #[arg(long)]
     pub sign: Option<String>,
-
-    #[arg(long)]
-    pub reference: Option<PathBuf>,
-
-    #[arg(long)]
-    pub extra_dir: Option<PathBuf>,
 
     #[arg(long)]
     pub tpk: Option<PathBuf>,

@@ -50,10 +50,25 @@ Older versions accepted:
 
 Those locations are no longer loaded automatically. Move the manifest to `<packaging-dir>/tpk/tizen-manifest.xml`.
 
+## Multi-package RPM
+
+Workspaces with multiple binary crates can bundle all binaries into a single RPM.
+Set `[rpm].packages` in `.cargo-tizen.toml`:
+
+```toml
+[rpm]
+packages = ["my-server", "my-cli"]
+```
+
+All listed packages are built and staged. The spec file is looked up by the first
+package name (`<packaging-dir>/rpm/my-server.spec`). The spec must reference all
+staged binaries as sources. CLI `-p` overrides to single-package mode.
+
+Single-crate projects need no config, the package name is auto-detected from `Cargo.toml`.
+
 ## Current gaps
 
-- The tool packages the binary named after `[package].name`. Multi-bin and renamed-bin packaging are not implemented yet.
-- Multi-package workspaces must select a member with `-p/--package` or `[default].package` in `.cargo-tizen.toml`.
+- The tool packages the binary named after `[package].name`. Custom `[[bin]]` names are not supported.
 - `doctor` reports packaging readiness, but it does not create or repair packaging files.
 - `clean` removes build outputs under `target/`; it does not remove source packaging files under the packaging root.
 
@@ -63,4 +78,5 @@ The repo includes example Cargo projects that also act as regression fixtures:
 
 - `templates/reference-projects/rpm-app` — minimal binary-only RPM
 - `templates/reference-projects/rpm-service-app` — RPM with extra sources (systemd unit, env file)
+- `templates/reference-projects/rpm-multi-package` — workspace with 2 binary crates + 1 library, multi-binary RPM via `[rpm].packages`
 - `templates/reference-projects/tpk-service-app`

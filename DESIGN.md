@@ -39,7 +39,8 @@ Not implemented yet:
 - `repo` provider internals (returns explicit "not implemented" error).
 - GBS backend.
 - Full integration test suite.
-- Multi-bin target selection (RPM/TPK currently stage `<package.name>` binary path).
+- Custom `[[bin]]` name support (RPM/TPK staging assumes binary name matches `[package].name`).
+- Multi-RPM output from a single invocation (current multi-package support produces one RPM).
 
 
 ## 2. Goals and Non-Goals
@@ -300,6 +301,7 @@ root = "~/.cache/cargo-tizen/sysroots"
 [rpm]
 packager = "Your Team <dev@example.com>"
 license = "Apache-2.0"
+packages = ["crate-server", "crate-cli"]  # multi-binary RPM: stage these packages
 
 [tpk]
 sign = "my_profile"
@@ -426,18 +428,26 @@ Implementation detail:
 ## 8. RPM Packaging Pipeline
 
 Given `cargo tizen rpm -A aarch64`:
-1. Run build phase unless `--no-build`.
-2. Create staging root: `target/tizen/<arch>/<debug|release>/stage/`.
-3. Copy built binary to `/usr/bin/<package_name>` in staging.
+1. Resolve packages:
+   - CLI `-p <name>`: single package override.
+   - `[rpm].packages` from `.cargo-tizen.toml`: multiple packages for multi-binary RPM.
+   - `[default].package` or root `[package].name`: single-package fallback.
+2. Run build phase unless `--no-build`. For multiple packages, passes `-p <name>` per package.
+3. Stage binaries (atomic):
+   - Build staging tree in `target/tizen/<arch>/<debug|release>/stage.tmp/`.
+   - Copy each package's binary to `stage.tmp/usr/bin/<package_name>`.
+   - Verify staged binary count matches expected (catches `[[bin]]` collisions).
+   - Atomically rename `stage.tmp/` to `stage/`.
 4. Resolve spec:
-   - `<packaging-dir>/rpm/<cargo-package-name>.spec`
+   - `<packaging-dir>/rpm/<first-package-name>.spec` (multi-package uses first entry in `[rpm].packages`)
    - fail if it does not exist
 4b. If `<packaging-dir>/rpm/sources/` exists, collect its regular files as extra sources.
    - Dotfiles are skipped; symlinks are rejected.
-   - Name collisions with the binary are rejected.
-   - Collected files are copied into `rpmbuild/SOURCES/` alongside the binary.
+   - Name collisions with any staged binary are rejected.
+   - Collected files are copied into `rpmbuild/SOURCES/` alongside the binaries.
 5. Prepare rpmbuild tree:
    - `target/tizen/<arch>/<debug|release>/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}`
+   - SOURCES is cleaned before populating to remove stale files from previous runs.
 6. Invoke:
    - `rpmbuild -bb <spec> --target <rpm_arch> --define "_topdir <...>"`
    - with SDK-aware PATH augmentation

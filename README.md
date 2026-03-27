@@ -117,6 +117,17 @@ cargo tizen build -A aarch64 --release
 cargo tizen rpm -A armv7l --cargo-release
 ```
 
+For workspaces with multiple binary crates that should be packaged into a single RPM,
+list them in `.cargo-tizen.toml`:
+
+```toml
+[rpm]
+packages = ["my-server", "my-cli"]
+```
+
+This builds and stages all listed binaries. The spec file is looked up by the first
+package name (`tizen/rpm/my-server.spec`). Single-crate projects need no config.
+
 ### Package as TPK
 
 ```bash

@@ -106,5 +106,5 @@ cargo run -- <subcommand> --help
 
 - `repo` sysroot provider is not implemented.
 - `package.metadata.tizen` schema is documented but not wired into staging/spec generation yet.
-- Workspace/member packaging requires explicit `--package` / `--bin` when selection is ambiguous.
+- Workspace/member packaging requires explicit `--package` or `[rpm].packages` config when selection is ambiguous.
 - End-to-end packaging tests require real Tizen SDK/rootstraps and host toolchain availability.

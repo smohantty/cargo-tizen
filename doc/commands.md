@@ -76,19 +76,31 @@ Rust target note:
 
 ## `rpm`
 
-Generate RPM from built binary.
+Generate RPM from built binary (or binaries).
 
 ```sh
-cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--no-build]
+cargo tizen rpm [-A <armv7l|aarch64>] [-p <package>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--no-build]
 ```
 
 Current behavior:
 
-- Looks for the spec at `<packaging-dir>/rpm/<cargo-package-name>.spec`.
+- Looks for the spec at `<packaging-dir>/rpm/<package-name>.spec`.
 - Default packaging root is `<workspace>/tizen`.
 - In a multi-package workspace, select the package with `-p/--package` or `[default].package` in `.cargo-tizen.toml`.
 - If the spec is missing, the command fails and prints the expected path plus the `--packaging-dir` escape hatch.
 - Staging expects the built binary path `<target-dir>/<rust-target>/<profile>/<package-name>`.
+
+**Multi-package RPM:** To bundle multiple binaries from a workspace into a single RPM, set `[rpm].packages` in `.cargo-tizen.toml`:
+
+```toml
+[rpm]
+packages = ["my-server", "my-cli"]
+```
+
+- All listed packages are built and staged into `rpmbuild/SOURCES/`.
+- The spec file is looked up by the first package name in the list.
+- CLI `-p` overrides to single-package mode even if `[rpm].packages` is set.
+- Single-crate projects need no config (auto-detected from `Cargo.toml`).
 
 Examples:
 
@@ -96,6 +108,7 @@ Examples:
 cargo tizen rpm -A armv7l --cargo-release
 cargo tizen rpm -A aarch64 --cargo-release --packaging-dir ./packaging
 cargo tizen rpm -A armv7l --no-build
+cargo tizen rpm -p my-server   # single-package override
 ```
 
 ## `doctor`

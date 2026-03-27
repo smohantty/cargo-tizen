@@ -2,6 +2,19 @@
 
 This file defines repository-specific rules and context for future coding agents working on `cargo-tizen`.
 
+## Workflow default
+
+For any feature, refactor, or bug fix request in this repo, default to gstack best practices:
+
+1. Run `/autoplan` before making any code changes.
+2. Implement only after the gstack review plan is established.
+3. Run the appropriate gstack review and test loop before finishing.
+4. Prepare for `/ship` if the work is ready.
+
+Do not substitute an ad hoc workflow.
+
+If the git tree is dirty, the scope changes, or a required gstack step cannot be followed cleanly, stop and ask the user before proceeding.
+
 ## Project intent
 
 `cargo-tizen` is a Cargo subcommand (`cargo tizen ...`) for:

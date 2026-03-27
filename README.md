@@ -143,11 +143,16 @@ By default, packaging files live under `tizen/`:
 tizen/
   rpm/
     <cargo-package-name>.spec
+    sources/                          # optional extra sources for rpmbuild
   tpk/
     tizen-manifest.xml
     reference/
     extra/
 ```
+
+Files in `rpm/sources/` are copied into `rpmbuild/SOURCES/` so your spec can
+reference them as `Source1:`, `Source2:`, etc. Useful for systemd units, env files,
+and configs. See `templates/reference-projects/rpm-service-app/` for a working example.
 
 `cargo-tizen` does not auto-generate missing spec or manifest files.
 

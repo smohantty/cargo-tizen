@@ -52,7 +52,7 @@ When changing SDK/rootstrap/device workflows, check upstream behavior first and 
 - `cargo tizen rpm`
 - `cargo tizen tpk`
 - `cargo tizen devices`
-- `cargo tizen run`
+- `cargo tizen install`
 - `cargo tizen doctor`
 - `cargo tizen clean`
 - `cargo tizen config`
@@ -73,7 +73,7 @@ in the same patch.
 - Tool env injection: `src/tool_env.rs`
 - Sysroot/cache/providers: `src/sysroot/*`
 - Build runner: `src/cargo_runner.rs`
-- Device discovery/install/launch: `src/device.rs`, `src/run_cmd.rs`
+- Device discovery/install: `src/device.rs`, `src/install_cmd.rs`
 - RPM backend: `src/rpm/*`
 - TPK backend: `src/tpk.rs`
 - Config command: `src/config_cmd.rs`

@@ -4,29 +4,29 @@ use anyhow::{Result, bail};
 
 use crate::arch::Arch;
 use crate::arch_detect;
-use crate::cli::{RunArgs, TpkArgs};
+use crate::cli::{InstallArgs, TpkArgs};
 use crate::context::AppContext;
 use crate::device;
-use crate::packaging::PackagingLayout;
 use crate::tpk;
 
-pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
+pub fn run_install(ctx: &AppContext, args: &InstallArgs) -> Result<()> {
     let device = device::resolve_target_device(ctx, args.device.as_deref())?;
     ctx.info(format!("using device {} ({})", device.id, device.model));
 
-    let (package_path, packaged_manifest) = if let Some(path) = &args.tpk {
+    let package_path = if let Some(path) = &args.tpk {
         if !path.is_file() {
             bail!("provided --tpk path does not exist: {}", path.display());
         }
-        (path.clone(), None)
+        path.clone()
     } else {
-        let selected_arch = resolve_run_arch(ctx, args, &device)?;
+        let selected_arch = resolve_install_arch(ctx, args, &device)?;
         let resolved_sign = args
             .sign
             .clone()
             .or_else(|| ctx.config.tpk_sign().map(String::from));
         let tpk_args = TpkArgs {
             arch: Some(selected_arch),
+            package: args.package.clone(),
             cargo_release: args.cargo_release,
             no_build: args.no_build,
             packaging_dir: args.packaging_dir.clone(),
@@ -42,20 +42,16 @@ pub fn run_run(ctx: &AppContext, args: &RunArgs) -> Result<()> {
                 chosen.display()
             ));
         }
-        (chosen, Some(packaged.manifest_path))
+        chosen
     };
 
-    let app_id = resolve_app_id(ctx, args, packaged_manifest.as_deref())?;
-    ctx.info(format!("resolved app id: {}", app_id));
-
     device::install_tpk_on_device(ctx, &device, &package_path)?;
-    device::launch_app_on_device(ctx, &device, &app_id)?;
     Ok(())
 }
 
-fn resolve_run_arch(
+fn resolve_install_arch(
     ctx: &AppContext,
-    args: &RunArgs,
+    args: &InstallArgs,
     device: &device::TizenDevice,
 ) -> Result<Arch> {
     if let Some(arch) = args.arch {
@@ -70,7 +66,7 @@ fn resolve_run_arch(
         return Ok(device_arch);
     }
 
-    arch_detect::resolve_arch(ctx, None, "run")
+    arch_detect::resolve_arch(ctx, None, "install")
 }
 
 fn choose_tpk(paths: &[PathBuf]) -> Result<PathBuf> {
@@ -81,24 +77,29 @@ fn choose_tpk(paths: &[PathBuf]) -> Result<PathBuf> {
     }
 }
 
-fn resolve_app_id(
-    ctx: &AppContext,
-    args: &RunArgs,
-    packaged_manifest: Option<&std::path::Path>,
-) -> Result<String> {
-    if let Some(app_id) = &args.app_id {
-        return Ok(app_id.clone());
+#[cfg(test)]
+mod tests {
+    use super::choose_tpk;
+    use std::path::PathBuf;
+
+    #[test]
+    fn choose_tpk_single() {
+        let paths = vec![PathBuf::from("/out/app.tpk")];
+        assert_eq!(choose_tpk(&paths).unwrap(), PathBuf::from("/out/app.tpk"));
     }
 
-    if let Some(manifest) = packaged_manifest {
-        return tpk::detect_app_id_from_manifest(manifest);
+    #[test]
+    fn choose_tpk_multiple_picks_first() {
+        let paths = vec![
+            PathBuf::from("/out/a.tpk"),
+            PathBuf::from("/out/b.tpk"),
+        ];
+        assert_eq!(choose_tpk(&paths).unwrap(), PathBuf::from("/out/a.tpk"));
     }
 
-    let packaging_root = args
-        .packaging_dir
-        .clone()
-        .or_else(|| ctx.config.packaging_dir());
-    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
-    let manifest = packaging.resolve_tpk_manifest()?;
-    return tpk::detect_app_id_from_manifest(&manifest);
+    #[test]
+    fn choose_tpk_empty_fails() {
+        let paths: Vec<PathBuf> = vec![];
+        assert!(choose_tpk(&paths).is_err());
+    }
 }

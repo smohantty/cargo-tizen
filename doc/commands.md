@@ -16,7 +16,7 @@ Packaging format:
 
 - `cargo-tizen` supports both **RPM** and **TPK** packaging.
 - If you are coming from `flutter-tizen`, note that it is primarily **TPK** oriented.
-- Device workflows use `sdb` similarly to `flutter-tizen` (`devices`, `run`).
+- Device workflows use `sdb` similarly to `flutter-tizen` (`devices`, `install`).
 
 ## `setup`
 
@@ -188,31 +188,28 @@ cargo tizen devices
 cargo tizen devices --all
 ```
 
-## `run`
+## `install`
 
-Package, install, and launch on a connected device.
+Build, package, and install a TPK on a connected device.
 
 ```sh
-cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>] [--app-id <id>]
+cargo tizen install [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>]
 ```
 
 Behavior:
 
-- `run` is TPK-only.
+- `install` is TPK-only.
 - If `--tpk` is omitted, `cargo-tizen` builds/packages a TPK first using the same packaging layout as `cargo tizen tpk`.
 - If one ready device exists, it is auto-selected.
 - If multiple ready devices exist, `-d/--device` is required.
-- Install uses `sdb -s <id> install <tpk>`.
-- Launch uses:
-  - `sdb -s <id> shell app_launcher -e <app_id>` (normal)
-  - `sdb -s <id> shell 0 execute <app_id>` (secure protocol devices)
+- Installs with `sdb -s <id> install <tpk>`.
 
 Examples:
 
 ```sh
-cargo tizen run -A armv7l --cargo-release
-cargo tizen run -A aarch64 -d 192.168.0.101:26101 --cargo-release --packaging-dir ./packaging
-cargo tizen run -A armv7l --tpk ./build/app.tpk --app-id org.example.app -d <device-id>
+cargo tizen install -A armv7l --cargo-release
+cargo tizen install -A aarch64 -d 192.168.0.101:26101 --cargo-release --packaging-dir ./packaging
+cargo tizen install -A armv7l --tpk ./build/app.tpk -d <device-id>
 ```
 
 ## `clean`
@@ -242,7 +239,7 @@ cargo tizen config [--sign <profile>] [--show]
 Notes:
 
 - Settings are stored in `~/.config/cargo-tizen/config.toml`.
-- `--sign <profile>` sets the default TPK signing profile used by `tpk` and `run` when `--sign` is not passed on the command line.
+- `--sign <profile>` sets the default TPK signing profile used by `tpk` and `install` when `--sign` is not passed on the command line.
 - `--sign ""` (empty string) clears the stored signing profile.
 - `--show` (or no flags) prints current configuration values.
 

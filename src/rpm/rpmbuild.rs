@@ -9,10 +9,12 @@ use crate::arch::Arch;
 use crate::context::AppContext;
 use crate::tool_env;
 
-pub fn collect_extra_sources(sources_dir: &Path, binary_name: &str) -> Result<Vec<PathBuf>> {
+pub fn collect_extra_sources(sources_dir: &Path, binary_names: &[&str]) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     let mut seen_names = HashSet::new();
-    seen_names.insert(binary_name.to_string());
+    for name in binary_names {
+        seen_names.insert(name.to_string());
+    }
 
     let mut entries: Vec<_> = fs::read_dir(sources_dir)
         .with_context(|| format!("failed to read RPM sources dir {}", sources_dir.display()))?
@@ -48,9 +50,10 @@ pub fn collect_extra_sources(sources_dir: &Path, binary_name: &str) -> Result<Ve
 
         if !seen_names.insert(name.clone()) {
             bail!(
-                "RPM source name collision: `{name}` conflicts with another source or the binary\n\
-                 each file in <packaging-dir>/rpm/sources/ must have a unique name\n\
-                 the binary is always Source0 with name `{binary_name}`"
+                "RPM source name collision: `{name}` conflicts with a staged binary or another source\n\
+                 all files in <packaging-dir>/rpm/sources/ must have names distinct from\n\
+                 all staged binaries: [{}]",
+                binary_names.join(", ")
             );
         }
 
@@ -67,8 +70,7 @@ pub fn build_rpm(
     arch: Arch,
     profile_dir: &str,
     spec_path: &Path,
-    staged_binary: &Path,
-    binary_name: &str,
+    staged_binaries: &[PathBuf],
     extra_sources: &[PathBuf],
     output_override: Option<&Path>,
 ) -> Result<Vec<PathBuf>> {
@@ -84,14 +86,37 @@ pub fn build_rpm(
             .with_context(|| format!("failed to create rpmbuild directory {}", dir))?;
     }
 
-    let source_binary = topdir.join("SOURCES").join(binary_name);
-    fs::copy(staged_binary, &source_binary).with_context(|| {
-        format!(
-            "failed to copy staged binary {} -> {}",
-            staged_binary.display(),
-            source_binary.display()
-        )
-    })?;
+    // Clean SOURCES dir to remove stale files from previous runs
+    let sources_dir = topdir.join("SOURCES");
+    for entry in fs::read_dir(&sources_dir)
+        .with_context(|| format!("failed to read SOURCES dir {}", sources_dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            fs::remove_dir_all(&path).with_context(|| {
+                format!("failed to clean stale SOURCES entry {}", path.display())
+            })?;
+        } else {
+            fs::remove_file(&path).with_context(|| {
+                format!("failed to clean stale SOURCES file {}", path.display())
+            })?;
+        }
+    }
+
+    for staged in staged_binaries {
+        let binary_name = staged
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("invalid staged binary path: {}", staged.display()))?;
+        let dest = sources_dir.join(binary_name);
+        fs::copy(staged, &dest).with_context(|| {
+            format!(
+                "failed to copy staged binary {} -> {}",
+                staged.display(),
+                dest.display()
+            )
+        })?;
+    }
 
     for source in extra_sources {
         let dest = topdir.join("SOURCES").join(
@@ -262,8 +287,8 @@ mod tests {
     fn collect_extra_sources_from_reference_project() {
         let sources_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("templates/reference-projects/rpm-service-app/tizen/rpm/sources");
-        let files =
-            collect_extra_sources(&sources_dir, "hello-service").expect("should collect sources");
+        let files = collect_extra_sources(&sources_dir, &["hello-service"])
+            .expect("should collect sources");
         let names: Vec<_> = files
             .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
@@ -277,7 +302,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("mybinary"), "fake").unwrap();
         let err =
-            collect_extra_sources(dir.path(), "mybinary").expect_err("should reject collision");
+            collect_extra_sources(dir.path(), &["mybinary"]).expect_err("should reject collision");
         assert!(err.to_string().contains("collision"));
     }
 
@@ -286,7 +311,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(".gitkeep"), "").unwrap();
         fs::write(dir.path().join("real-source"), "content").unwrap();
-        let files = collect_extra_sources(dir.path(), "mybinary").expect("should collect sources");
+        let files =
+            collect_extra_sources(dir.path(), &["mybinary"]).expect("should collect sources");
         assert_eq!(files.len(), 1);
         assert_eq!(
             files[0].file_name().unwrap().to_string_lossy(),
@@ -298,7 +324,28 @@ mod tests {
     fn collect_extra_sources_empty_dir_is_ok() {
         let dir = tempfile::tempdir().unwrap();
         let files =
-            collect_extra_sources(dir.path(), "mybinary").expect("empty dir should succeed");
+            collect_extra_sources(dir.path(), &["mybinary"]).expect("empty dir should succeed");
         assert!(files.is_empty());
+    }
+
+    #[test]
+    fn collect_extra_sources_multi_binary_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("server-bin"), "fake").unwrap();
+        let err = collect_extra_sources(dir.path(), &["server-bin", "cli-bin"])
+            .expect_err("should reject collision with binary name");
+        let msg = err.to_string();
+        assert!(msg.contains("collision"));
+        assert!(msg.contains("server-bin"));
+        assert!(msg.contains("cli-bin"));
+    }
+
+    #[test]
+    fn collect_extra_sources_multi_binary_no_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("config.ini"), "content").unwrap();
+        let files = collect_extra_sources(dir.path(), &["server", "cli"])
+            .expect("should succeed without collision");
+        assert_eq!(files.len(), 1);
     }
 }

@@ -93,9 +93,65 @@ pub fn inspect_manifest(path: &Path) -> Result<ManifestKind> {
     Ok(ManifestKind::Unknown)
 }
 
+/// Resolve packages for RPM packaging. Returns one or more packages to build and stage.
+///
+/// Resolution priority:
+/// 1. CLI `-p <name>` → single package override
+/// 2. `[rpm].packages` from config → multiple packages
+/// 3. `[default].package` from config → single package
+/// 4. Root `[package].name` from Cargo.toml → single package auto-detect
+/// 5. Workspace root with no selection → error
+pub fn resolve_rpm_packages(
+    ctx: &AppContext,
+    explicit_package: Option<&str>,
+) -> Result<Vec<SelectedPackage>> {
+    // 1. CLI -p override: always single package
+    if let Some(name) = explicit_package {
+        return Ok(vec![SelectedPackage {
+            name: name.to_string(),
+            source: PackageSource::Cli,
+        }]);
+    }
+
+    // 2. [rpm].packages from config
+    if let Some(packages) = ctx.config.rpm.packages() {
+        let mut seen = std::collections::HashSet::new();
+        let mut result = Vec::with_capacity(packages.len());
+        for name in packages {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                bail!(
+                    "empty package name in [rpm].packages\n\
+                     each entry must be a non-empty Cargo package name"
+                );
+            }
+            if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+                bail!(
+                    "invalid package name `{name}` in [rpm].packages\n\
+                     package names must not contain path separators or `..`"
+                );
+            }
+            if !seen.insert(name.as_str()) {
+                bail!(
+                    "duplicate package `{name}` in [rpm].packages\n\
+                     each entry must be unique"
+                );
+            }
+            result.push(SelectedPackage {
+                name: name.clone(),
+                source: PackageSource::Config,
+            });
+        }
+        return Ok(result);
+    }
+
+    // 3-5. Fall through to existing single-package resolution
+    resolve_for_command(ctx, None, "rpm").map(|pkg| vec![pkg])
+}
+
 pub fn workspace_selection_message(path: &Path, command_name: &str) -> String {
     format!(
-        "workspace root detected at {}\n`cargo tizen {}` packages one workspace member at a time\nrerun with: cargo tizen {} -p <member>\nor set a default package in .cargo-tizen.toml:\n[default]\npackage = \"<member>\"",
+        "workspace root detected at {}\n`cargo tizen {}` packages one workspace member at a time\nrerun with: cargo tizen {} -p <member>\nor set a default in .cargo-tizen.toml:\n[default]\npackage = \"<member>\"\nor for multi-binary RPM, list all packages:\n[rpm]\npackages = [\"<member-a>\", \"<member-b>\"]",
         path.display(),
         command_name,
         command_name
@@ -110,7 +166,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        ManifestKind, PackageSource, inspect_manifest, resolve_for_command,
+        ManifestKind, PackageSource, inspect_manifest, resolve_for_command, resolve_rpm_packages,
         workspace_selection_message,
     };
     use crate::config::Config;
@@ -176,5 +232,146 @@ mod tests {
         let selected = resolve_for_command(&ctx, None, "rpm").unwrap();
         assert_eq!(selected.name, "rsdbd");
         assert_eq!(selected.source, PackageSource::Config);
+    }
+
+    #[test]
+    fn resolve_rpm_packages_cli_override_returns_single() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"app\"]\n",
+        )
+        .unwrap();
+
+        let mut config = Config::default();
+        config.rpm.packages = Some(vec!["a".into(), "b".into()]);
+        let ctx = AppContext {
+            config,
+            verbose: false,
+            quiet: true,
+            workspace_root: dir.path().to_path_buf(),
+        };
+
+        let result = resolve_rpm_packages(&ctx, Some("override")).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "override");
+        assert_eq!(result[0].source, PackageSource::Cli);
+    }
+
+    #[test]
+    fn resolve_rpm_packages_from_config() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\", \"b\"]\n",
+        )
+        .unwrap();
+
+        let mut config = Config::default();
+        config.rpm.packages = Some(vec!["a".into(), "b".into()]);
+        let ctx = AppContext {
+            config,
+            verbose: false,
+            quiet: true,
+            workspace_root: dir.path().to_path_buf(),
+        };
+
+        let result = resolve_rpm_packages(&ctx, None).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name, "a");
+        assert_eq!(result[0].source, PackageSource::Config);
+        assert_eq!(result[1].name, "b");
+    }
+
+    #[test]
+    fn resolve_rpm_packages_config_over_default_package() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\", \"b\"]\n",
+        )
+        .unwrap();
+
+        let mut config = Config::default();
+        config.default.package = Some("old-default".into());
+        config.rpm.packages = Some(vec!["a".into(), "b".into()]);
+        let ctx = AppContext {
+            config,
+            verbose: false,
+            quiet: true,
+            workspace_root: dir.path().to_path_buf(),
+        };
+
+        let result = resolve_rpm_packages(&ctx, None).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name, "a");
+    }
+
+    #[test]
+    fn resolve_rpm_packages_empty_config_falls_through() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"solo\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let mut config = Config::default();
+        config.rpm.packages = Some(vec![]); // empty = treated as unset
+        let ctx = AppContext {
+            config,
+            verbose: false,
+            quiet: true,
+            workspace_root: dir.path().to_path_buf(),
+        };
+
+        let result = resolve_rpm_packages(&ctx, None).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "solo");
+        assert_eq!(result[0].source, PackageSource::Manifest);
+    }
+
+    #[test]
+    fn resolve_rpm_packages_rejects_duplicates() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\"]\n",
+        )
+        .unwrap();
+
+        let mut config = Config::default();
+        config.rpm.packages = Some(vec!["same".into(), "same".into()]);
+        let ctx = AppContext {
+            config,
+            verbose: false,
+            quiet: true,
+            workspace_root: dir.path().to_path_buf(),
+        };
+
+        let err = resolve_rpm_packages(&ctx, None).unwrap_err();
+        assert!(err.to_string().contains("duplicate"));
+    }
+
+    #[test]
+    fn resolve_rpm_packages_fallback_to_manifest() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"standalone\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+
+        let ctx = AppContext {
+            config: Config::default(),
+            verbose: false,
+            quiet: true,
+            workspace_root: dir.path().to_path_buf(),
+        };
+
+        let result = resolve_rpm_packages(&ctx, None).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "standalone");
+        assert_eq!(result[0].source, PackageSource::Manifest);
     }
 }

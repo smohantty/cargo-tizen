@@ -60,6 +60,7 @@ pub struct CacheConfig {
 pub struct RpmConfig {
     pub packager: Option<String>,
     pub license: Option<String>,
+    pub packages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -294,6 +295,16 @@ impl RpmConfig {
         if other.license.is_some() {
             self.license = other.license;
         }
+        if other.packages.is_some() {
+            self.packages = other.packages;
+        }
+    }
+
+    pub fn packages(&self) -> Option<&[String]> {
+        match &self.packages {
+            Some(v) if !v.is_empty() => Some(v),
+            _ => None,
+        }
     }
 }
 
@@ -331,4 +342,70 @@ fn expand_tilde(path: &str) -> PathBuf {
     }
 
     PathBuf::from(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rpm_packages_none_when_omitted() {
+        let config: Config = toml::from_str("[rpm]\npackager = \"test\"\n").unwrap();
+        assert!(config.rpm.packages.is_none());
+        assert!(config.rpm.packages().is_none());
+    }
+
+    #[test]
+    fn rpm_packages_some_when_present() {
+        let config: Config = toml::from_str("[rpm]\npackages = [\"a\", \"b\"]\n").unwrap();
+        assert_eq!(
+            config.rpm.packages,
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
+        assert_eq!(
+            config.rpm.packages(),
+            Some(["a".to_string(), "b".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn rpm_packages_empty_treated_as_unset() {
+        let config: Config = toml::from_str("[rpm]\npackages = []\n").unwrap();
+        assert_eq!(config.rpm.packages, Some(vec![]));
+        // The accessor treats empty as unset
+        assert!(config.rpm.packages().is_none());
+    }
+
+    #[test]
+    fn rpm_config_merge_project_replaces_user() {
+        let mut base = RpmConfig {
+            packager: Some("user".into()),
+            license: None,
+            packages: Some(vec!["old".into()]),
+        };
+        let other = RpmConfig {
+            packager: None,
+            license: None,
+            packages: Some(vec!["new-a".into(), "new-b".into()]),
+        };
+        base.merge(other);
+        assert_eq!(
+            base.packages,
+            Some(vec!["new-a".to_string(), "new-b".to_string()])
+        );
+        // packager preserved since other didn't set it
+        assert_eq!(base.packager, Some("user".to_string()));
+    }
+
+    #[test]
+    fn rpm_config_merge_preserves_when_project_omits() {
+        let mut base = RpmConfig {
+            packager: None,
+            license: None,
+            packages: Some(vec!["keep".into()]),
+        };
+        let other = RpmConfig::default();
+        base.merge(other);
+        assert_eq!(base.packages, Some(vec!["keep".to_string()]));
+    }
 }

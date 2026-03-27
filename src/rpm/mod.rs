@@ -15,20 +15,29 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
     let arch = arch_detect::resolve_arch(ctx, args.arch, "rpm")?;
     let rust_target = rust_target::resolve_for_arch(ctx, arch)?;
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
-    let selected_package =
-        package_select::resolve_for_command(ctx, args.package.as_deref(), "rpm")?;
+    let packages = package_select::resolve_rpm_packages(ctx, args.package.as_deref())?;
 
-    if selected_package.source == PackageSource::Config {
+    let is_multi = packages.len() > 1;
+    if is_multi {
+        let names: Vec<&str> = packages.iter().map(|p| p.name.as_str()).collect();
         ctx.info(format!(
-            "auto-selected package {} from [default].package for `cargo tizen rpm`",
-            selected_package.name
+            "multi-package RPM: staging {} binaries [{}]",
+            packages.len(),
+            names.join(", ")
+        ));
+    } else if packages[0].source == PackageSource::Config {
+        ctx.info(format!(
+            "using package {} from config for `cargo tizen rpm`",
+            packages[0].name
         ));
     }
 
     if !args.no_build {
         let mut cargo_args = Vec::new();
-        if selected_package.source.requires_cargo_package_arg() {
-            cargo_args.extend(["-p".to_string(), selected_package.name.clone()]);
+        for pkg in &packages {
+            if pkg.source.requires_cargo_package_arg() {
+                cargo_args.extend(["-p".to_string(), pkg.name.clone()]);
+            }
         }
         let build_args = BuildArgs {
             arch: Some(arch),
@@ -39,15 +48,18 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         cargo_runner::run_build(ctx, &build_args)?;
     }
 
-    let stage = stage::stage_binary_from_target_dir(
+    let stage_output = stage::stage_binaries_from_target_dir(
         &ctx.workspace_root,
         arch,
         &rust_target,
         &build_target_dir,
         args.cargo_release,
-        &selected_package.name,
+        &packages,
     )?;
-    ctx.debug(format!("staging root: {}", stage.stage_root.display()));
+    ctx.debug(format!(
+        "staging root: {}",
+        stage_output.stage_root.display()
+    ));
 
     let profile_dir = if args.cargo_release {
         "release"
@@ -60,11 +72,19 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         .clone()
         .or_else(|| ctx.config.packaging_dir());
     let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
-    let spec_path = packaging.resolve_rpm_spec(&selected_package.name)?;
 
+    // Spec lookup uses the first package name
+    let spec_name = &packages[0].name;
+    let spec_path = packaging.resolve_rpm_spec(spec_name)?;
+
+    let binary_names: Vec<&str> = stage_output
+        .package_names
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
     let extra_sources = match packaging.rpm_sources_dir()? {
         Some(dir) => {
-            let sources = rpmbuild::collect_extra_sources(&dir, &stage.package.name)?;
+            let sources = rpmbuild::collect_extra_sources(&dir, &binary_names)?;
             if !sources.is_empty() {
                 ctx.info(format!(
                     "found {} extra RPM source(s) in {}",
@@ -84,8 +104,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         arch,
         profile_dir,
         &spec_path,
-        &stage.staged_binary,
-        &stage.package.name,
+        &stage_output.staged_binaries,
         &extra_sources,
         args.output.as_deref(),
     )?;

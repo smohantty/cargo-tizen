@@ -1,0 +1,2 @@
+[rpm]
+packages = ["hello-server", "hello-cli"]

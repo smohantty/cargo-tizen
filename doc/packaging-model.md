@@ -28,7 +28,7 @@ Notes:
 
 - **RPM backend** (`cargo tizen rpm`)
 - **TPK backend** (`cargo tizen tpk`)
-- **Device deploy/run flow** (`cargo tizen devices`, `cargo tizen run`)
+- **Device install flow** (`cargo tizen devices`, `cargo tizen install`)
 
 RPM flow:
 

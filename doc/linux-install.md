@@ -91,7 +91,7 @@ Configuration note:
 - `.cargo-tizen.toml` is optional.
 - Start with defaults and add config only when you need overrides.
 
-## 6. Configure device connection (for `cargo tizen run`)
+## 6. Configure device connection (for `cargo tizen install`)
 
 See [configure-device.md](configure-device.md), then verify:
 

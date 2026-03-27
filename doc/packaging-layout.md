@@ -21,7 +21,7 @@ You can point to a non-standard root with:
 ```sh
 cargo tizen rpm --packaging-dir /path/to/packaging
 cargo tizen tpk --packaging-dir /path/to/packaging
-cargo tizen run --packaging-dir /path/to/packaging
+cargo tizen install --packaging-dir /path/to/packaging
 ```
 
 You can also persist that root in `.cargo-tizen.toml`:
@@ -35,7 +35,7 @@ packaging_dir = "./packaging"
 
 - `cargo tizen rpm` looks for `<packaging-dir>/rpm/<cargo-package-name>.spec`.
 - `cargo tizen tpk` looks for `<packaging-dir>/tpk/tizen-manifest.xml`.
-- `cargo tizen run` is TPK-only. When `--tpk` is omitted, it uses the same TPK packaging layout as `cargo tizen tpk`.
+- `cargo tizen install` is TPK-only. When `--tpk` is omitted, it uses the same TPK packaging layout as `cargo tizen tpk`.
 
 If the expected file is missing, the command fails and prints the exact path it expected plus the `--packaging-dir` escape hatch.
 

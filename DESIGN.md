@@ -22,7 +22,7 @@ Upstream adaptation reference:
 ## 1.1 Implementation Status (Current)
 
 Implemented:
-- CLI scaffold for `setup`, `build`, `rpm`, `tpk`, `devices`, `run`, `doctor`, `fix`, `clean`, `config`.
+- CLI scaffold for `setup`, `build`, `rpm`, `tpk`, `devices`, `install`, `doctor`, `fix`, `clean`, `config`.
 - `ArchMap` defaults for Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
 - Rootstrap-based sysroot provisioning from installed Tizen SDK rootstraps.
 - Rootstrap fallback policy for missing `tv-samsung` rootstraps.
@@ -32,7 +32,7 @@ Implemented:
 - RPM staging/rpmbuild isolation under `target/tizen/<arch>/<debug|release>/...`.
 - TPK staging under `target/tizen/<arch>/<debug|release>/tpk/root` and packaging via `tizen package -t tpk`.
 - Device discovery via `sdb devices` with Tizen capability verification.
-- Device run flow (`cargo tizen run`) with auto device selection, `sdb install`, and launch.
+- Device install flow (`cargo tizen install`) with auto device selection and `sdb install`.
 - Doctor checks for toolchain, SDK detection, rootstrap availability, rust target availability, and cache readiness.
 
 Not implemented yet:
@@ -157,28 +157,21 @@ Behavior:
 - Verifies Tizen targets using `sdb -s <id> capability` (`cpu_arch` check).
 - `--all` includes non-ready and non-Tizen entries.
 
-## 4.6 `run`
+## 4.6 `install`
 
 ```bash
-cargo tizen run [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>] [--app-id <id>]
+cargo tizen install [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>]
 ```
 
 Purpose:
-- Build/package (or reuse a prebuilt TPK), install to a device, and launch the app.
+- Build/package (or reuse a prebuilt TPK) and install to a device.
 
 Behavior:
-- `run` is TPK-only.
+- `install` is TPK-only.
 - If `--tpk` is omitted, runs the TPK packaging backend first.
 - Auto-selects device when exactly one ready Tizen device is connected.
 - Requires `-d/--device` when multiple devices are ready.
 - Installs with `sdb -s <id> install <tpk>`.
-- Launches with:
-  - `sdb -s <id> shell app_launcher -e <app_id>` (normal devices)
-  - `sdb -s <id> shell 0 execute <app_id>` (secure protocol devices)
-- App ID is resolved from:
-  1. `--app-id`
-  2. manifest `appid`
-  3. manifest `package` (fallback)
 
 ## 4.7 `doctor`
 
@@ -254,13 +247,13 @@ Behavior:
 
 ## 4.12 Architecture Auto-Detection
 
-When `-A/--arch` is omitted for `setup`, `build`, `rpm`, `tpk`, and `run`, architecture is resolved in this order:
+When `-A/--arch` is omitted for `setup`, `build`, `rpm`, `tpk`, and `install`, architecture is resolved in this order:
 1. `[default].arch` in config.
 2. Exactly one supported `[arch.*]` entry in config.
 3. Exactly one supported architecture across connected ready Tizen devices.
 4. Otherwise fail with an explicit "pass `-A/--arch`" error.
 
-For `run`, when packaging from source (no `--tpk`), the selected device `cpu_arch` is preferred before the shared fallback chain.
+For `install`, when packaging from source (no `--tpk`), the selected device `cpu_arch` is preferred before the shared fallback chain.
 
 
 ## 5. Configuration Model
@@ -470,9 +463,9 @@ Notes:
 - TPK backend depends on Tizen CLI availability from detected SDK or PATH.
 - Unlike flutter-tizen, this backend packages Rust binary layout directly from Cargo outputs.
 
-## 8.2 Device Run Pipeline
+## 8.2 Device Install Pipeline
 
-Given `cargo tizen run -A armv7l`:
+Given `cargo tizen install -A armv7l`:
 1. Discover devices via `sdb devices`.
 2. Keep entries with state `device`.
 3. Verify Tizen targets with `sdb -s <id> capability` (`cpu_arch` must exist).
@@ -482,9 +475,7 @@ Given `cargo tizen run -A armv7l`:
 5. Determine package:
    - use `--tpk` if provided
    - otherwise run TPK packaging flow
-6. Resolve app ID (`--app-id` > manifest `appid` > manifest `package`).
-7. Install using `sdb -s <id> install <tpk>` (with flutter-tizen-like failure string checks).
-8. Launch app with `app_launcher -e` or secure protocol `0 execute`.
+6. Install using `sdb -s <id> install <tpk>` (with flutter-tizen-like failure string checks).
 
 
 ## 9. Error Model and Diagnostics
@@ -496,7 +487,7 @@ Error classes:
 - `SysrootValidationError`: missing/invalid sysroot contents.
 - `BuildError`: cargo or linker failure.
 - `PackagingError`: spec or rpmbuild failure.
-- `DeployError`: device discovery/install/launch failure.
+- `DeployError`: device discovery/install failure.
 
 Diagnostics principles:
 - Show failing command and exit code.
@@ -667,7 +658,7 @@ Adaptation for `cargo-tizen`:
 - Implemented: `ToolEnv` for PATH/compiler/pkg-config/sysroot environment construction.
 - Implemented: output segmentation by arch and build profile.
 - Implemented: `devices` command with capability-based filtering and diagnostics.
-- Implemented: `run` command with auto-select or explicit `-d`, install, and launch.
+- Implemented: `install` command with auto-select or explicit `-d` and device install.
 - Pending: `repo` provider internals.
 
 Implementation note:

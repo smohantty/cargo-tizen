@@ -6,7 +6,7 @@ A Cargo subcommand for cross-building Rust projects for Tizen and packaging them
 cargo tizen build -A armv7l --release
 cargo tizen rpm -A armv7l --cargo-release
 cargo tizen tpk -A armv7l --cargo-release
-cargo tizen run -A armv7l --cargo-release
+cargo tizen install -A armv7l --cargo-release
 ```
 
 ## Install
@@ -100,7 +100,7 @@ missing linker, or other host-tool issue, fix that manually and rerun `cargo tiz
 
 ## Quick Start
 
-RPM, TPK, and `run` currently assume the built binary lives at
+RPM, TPK, and `install` currently assume the built binary lives at
 `<target-dir>/<rust-target>/<debug|release>/<package-name>`. Projects with a custom `[[bin]]` name or multiple
 binaries should make sure the packaged binary name matches `[package].name` in `Cargo.toml`.
 
@@ -125,14 +125,14 @@ cargo tizen tpk -A armv7l --cargo-release
 
 This expects an authored manifest at `tizen/tpk/tizen-manifest.xml`.
 
-### Deploy to device
+### Install to device
 
 ```bash
 # List connected devices
 cargo tizen devices
 
-# Build, package, install, and launch
-cargo tizen run -A armv7l --cargo-release
+# Build, package, and install on device
+cargo tizen install -A armv7l --cargo-release
 ```
 
 ## Packaging Layout
@@ -156,7 +156,7 @@ For a non-standard layout, point commands at a different packaging root:
 ```bash
 cargo tizen rpm --packaging-dir ./packaging
 cargo tizen tpk --packaging-dir ./packaging
-cargo tizen run --packaging-dir ./packaging
+cargo tizen install --packaging-dir ./packaging
 ```
 
 You can persist that root in `.cargo-tizen.toml`:
@@ -212,7 +212,7 @@ linker = "aarch64-linux-gnu-gcc"
 - The packaged binary name must match `[package].name` in `Cargo.toml`.
 - Multi-bin and custom `[[bin]]` names are not yet supported.
 - Workspace packaging requires running commands from the specific package crate, not the workspace root.
-- `cargo tizen run` deploys TPK only (not RPM).
+- `cargo tizen install` deploys TPK only (not RPM).
 
 ## TPK Signing
 
@@ -228,7 +228,7 @@ Open Tizen Studio **Tools > Certificate Manager** and create a certificate profi
 cargo tizen config --sign my_profile
 ```
 
-This is stored in `~/.config/cargo-tizen/config.toml` and used automatically by `tpk` and `run`. Override per-command with `--sign <profile>`.
+This is stored in `~/.config/cargo-tizen/config.toml` and used automatically by `tpk` and `install`. Override per-command with `--sign <profile>`.
 
 ### 3. Samsung TV devices
 
@@ -241,7 +241,7 @@ For Samsung TVs, create a **Samsung** type profile in Certificate Manager with y
 | `cargo tizen build` | Cross-build Rust project |
 | `cargo tizen rpm` | Build and package as RPM |
 | `cargo tizen tpk` | Build and package as TPK |
-| `cargo tizen run` | Build, package, install, and launch on device |
+| `cargo tizen install` | Build, package, and install on device |
 | `cargo tizen devices` | List connected Tizen devices |
 | `cargo tizen setup` | Pre-populate sysroot cache |
 | `cargo tizen doctor` | Check toolchain and SDK readiness |

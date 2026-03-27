@@ -34,8 +34,14 @@ pub fn stage_binary_from_target_dir(
     rust_target: &str,
     target_dir: &Path,
     release: bool,
+    package_override: Option<&str>,
 ) -> Result<StageOutput> {
-    let package = read_manifest_package(&workspace_root.join("Cargo.toml"))?;
+    let package = match package_override {
+        Some(name) => PackageInfo {
+            name: name.to_string(),
+        },
+        None => read_manifest_package(&workspace_root.join("Cargo.toml"))?,
+    };
     let profile_dir = if release { "release" } else { "debug" };
     let source_binary = target_dir
         .join(rust_target)

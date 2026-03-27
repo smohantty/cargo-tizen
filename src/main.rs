@@ -9,10 +9,10 @@ mod context;
 mod device;
 mod doctor;
 mod fix;
+mod install_cmd;
 mod output;
 mod packaging;
 mod rpm;
-mod run_cmd;
 mod rust_target;
 mod sdk;
 mod sysroot;
@@ -46,7 +46,7 @@ fn main() -> Result<()> {
         Command::Rpm(args) => rpm::run_rpm(&ctx, &args)?,
         Command::Tpk(args) => tpk::run_tpk(&ctx, &args)?,
         Command::Devices(args) => device::run_devices(&ctx, &args)?,
-        Command::Run(args) => run_cmd::run_run(&ctx, &args)?,
+        Command::Install(args) => install_cmd::run_install(&ctx, &args)?,
         Command::Doctor(args) => doctor::run_doctor(&ctx, &args)?,
         Command::Fix(args) => fix::run_fix(&ctx, &args)?,
         Command::Clean(args) => clean::run_clean(&ctx, &args)?,

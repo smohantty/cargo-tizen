@@ -32,7 +32,7 @@ pub enum Command {
     Rpm(RpmArgs),
     Tpk(TpkArgs),
     Devices(DevicesArgs),
-    Run(RunArgs),
+    Install(InstallArgs),
     Doctor(DoctorArgs),
     Fix(FixArgs),
     Clean(CleanArgs),
@@ -92,6 +92,9 @@ pub struct RpmArgs {
     )]
     pub arch: Option<Arch>,
 
+    #[arg(short = 'p', long, help = "Workspace member to package")]
+    pub package: Option<String>,
+
     #[arg(long)]
     pub cargo_release: bool,
 
@@ -113,6 +116,9 @@ pub struct TpkArgs {
         help = "Target architecture (auto-detected when omitted)"
     )]
     pub arch: Option<Arch>,
+
+    #[arg(short = 'p', long, help = "Workspace member to package")]
+    pub package: Option<String>,
 
     #[arg(long)]
     pub cargo_release: bool,
@@ -137,13 +143,16 @@ pub struct DevicesArgs {
 }
 
 #[derive(Debug, Clone, Args)]
-pub struct RunArgs {
+pub struct InstallArgs {
     #[arg(
         short = 'A',
         long,
         help = "Target architecture (auto-detected when omitted)"
     )]
     pub arch: Option<Arch>,
+
+    #[arg(short = 'p', long, help = "Workspace member to package")]
+    pub package: Option<String>,
 
     #[arg(short = 'd', long)]
     pub device: Option<String>,
@@ -165,9 +174,6 @@ pub struct RunArgs {
 
     #[arg(long)]
     pub tpk: Option<PathBuf>,
-
-    #[arg(long)]
-    pub app_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Args)]

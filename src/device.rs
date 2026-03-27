@@ -172,44 +172,6 @@ pub fn install_tpk_on_device(ctx: &AppContext, device: &TizenDevice, tpk: &Path)
     Ok(())
 }
 
-pub fn launch_app_on_device(ctx: &AppContext, device: &TizenDevice, app_id: &str) -> Result<()> {
-    let sdb = locate_sdb(ctx)?;
-    let mut cmd = Command::new(&sdb);
-    cmd.arg("-s").arg(&device.id).arg("shell");
-    if device.secure_protocol {
-        cmd.arg("0").arg("execute").arg(app_id);
-    } else {
-        cmd.arg("app_launcher").arg("-e").arg(app_id);
-    }
-
-    let output = cmd
-        .output()
-        .with_context(|| format!("failed to execute app launch for {}", device.id))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() {
-        bail!(
-            "failed to launch app {} on {}.\nstdout:\n{}\nstderr:\n{}",
-            app_id,
-            device.id,
-            stdout.trim(),
-            stderr.trim()
-        );
-    }
-    if !device.secure_protocol && !stdout.contains("successfully launched") {
-        bail!(
-            "launch command did not report success for app {} on {}.\nstdout:\n{}\nstderr:\n{}",
-            app_id,
-            device.id,
-            stdout.trim(),
-            stderr.trim()
-        );
-    }
-
-    ctx.info(format!("launched {} on {}", app_id, device.id));
-    Ok(())
-}
-
 pub fn discover_devices(ctx: &AppContext) -> Result<Vec<TizenDevice>> {
     let sdb = locate_sdb(ctx)?;
     let mut cmd = Command::new(&sdb);

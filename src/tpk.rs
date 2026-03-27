@@ -20,7 +20,6 @@ use crate::tool_env;
 pub struct TpkPackageOutput {
     pub output_dir: PathBuf,
     pub tpk_files: Vec<PathBuf>,
-    pub manifest_path: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,11 +52,15 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
 
     if !args.no_build {
+        let mut cargo_args = Vec::new();
+        if let Some(pkg) = &args.package {
+            cargo_args.extend(["-p".to_string(), pkg.clone()]);
+        }
         let build_args = BuildArgs {
             arch: Some(arch),
             release: args.cargo_release,
             target_dir: Some(build_target_dir.clone()),
-            cargo_args: Vec::new(),
+            cargo_args,
         };
         cargo_runner::run_build(ctx, &build_args)?;
     }
@@ -72,8 +75,10 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         .clone()
         .or_else(|| ctx.config.packaging_dir());
     let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
-    let package = manifest_package(&ctx.workspace_root.join("Cargo.toml"))?;
-    let package_name = package.name.clone();
+    let package_name = match &args.package {
+        Some(name) => name.clone(),
+        None => manifest_package(&ctx.workspace_root.join("Cargo.toml"))?.name,
+    };
     let source_binary = build_target_dir
         .join(&rust_target)
         .join(profile_dir)
@@ -102,7 +107,7 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         .with_context(|| format!("failed to create staging root {}", stage_root.display()))?;
 
     let staged_manifest = stage_root.join("tizen-manifest.xml");
-    let manifest_path = stage_manifest(&packaging, &staged_manifest)?;
+    stage_manifest(&packaging, &staged_manifest)?;
 
     let output_dir = args.output.clone().unwrap_or_else(|| {
         ctx.workspace_root
@@ -237,7 +242,6 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
     Ok(TpkPackageOutput {
         output_dir,
         tpk_files: tpks,
-        manifest_path,
     })
 }
 
@@ -520,31 +524,6 @@ fn tizen_template_profile_name(platform_version: &str) -> String {
     } else {
         format!("tizen-{platform_version}")
     }
-}
-
-pub fn detect_app_id_from_manifest(path: &Path) -> Result<String> {
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("failed to read manifest {}", path.display()))?;
-
-    for tag in [
-        "ui-application",
-        "service-application",
-        "watch-application",
-        "widget-application",
-    ] {
-        if let Some(appid) = extract_attr_from_tag(&raw, tag, "appid") {
-            return Ok(appid);
-        }
-    }
-
-    if let Some(pkg) = extract_attr_from_tag(&raw, "manifest", "package") {
-        return Ok(pkg);
-    }
-
-    bail!(
-        "failed to determine app id from {}. pass --app-id explicitly",
-        path.display()
-    )
 }
 
 fn locate_tizen_cli(ctx: &AppContext) -> Result<PathBuf> {

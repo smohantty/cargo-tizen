@@ -16,11 +16,15 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
 
     if !args.no_build {
+        let mut cargo_args = Vec::new();
+        if let Some(pkg) = &args.package {
+            cargo_args.extend(["-p".to_string(), pkg.clone()]);
+        }
         let build_args = BuildArgs {
             arch: Some(arch),
             release: args.cargo_release,
             target_dir: Some(build_target_dir.clone()),
-            cargo_args: Vec::new(),
+            cargo_args,
         };
         cargo_runner::run_build(ctx, &build_args)?;
     }
@@ -31,6 +35,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         &rust_target,
         &build_target_dir,
         args.cargo_release,
+        args.package.as_deref(),
     )?;
     ctx.debug(format!("staging root: {}", stage.stage_root.display()));
 

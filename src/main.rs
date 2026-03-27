@@ -11,6 +11,7 @@ mod doctor;
 mod fix;
 mod install_cmd;
 mod output;
+mod package_select;
 mod packaging;
 mod rpm;
 mod rust_target;

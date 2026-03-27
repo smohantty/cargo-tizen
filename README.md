@@ -186,6 +186,10 @@ When `-A` / `--arch` is omitted, `cargo-tizen` auto-selects:
 
 `.cargo-tizen.toml` in your project root is optional. Add it only when you need overrides.
 
+In a multi-package workspace, set `[default].package = "member-name"` if you want
+`rpm`, `tpk`, and `install` to package the same member by default without repeating
+`-p/--package` on every command.
+
 Minimal (just point to SDK):
 
 ```toml
@@ -198,6 +202,7 @@ Full example:
 ```toml
 [default]
 arch = "armv7l"
+package = "my-app"
 profile = "mobile"
 platform_version = "10.0"
 packaging_dir = "./packaging"
@@ -216,7 +221,7 @@ linker = "aarch64-linux-gnu-gcc"
 
 - The packaged binary name must match `[package].name` in `Cargo.toml`.
 - Multi-bin and custom `[[bin]]` names are not yet supported.
-- Workspace packaging requires running commands from the specific package crate, not the workspace root.
+- Multi-package workspaces must pick a member with `-p/--package` or `[default].package` in `.cargo-tizen.toml`.
 - `cargo tizen install` deploys TPK only (not RPM).
 
 ## TPK Signing
@@ -279,4 +284,3 @@ Check `sdb devices` shows your target as `device`. For network devices: `sdb con
 - [Full command reference](doc/commands.md)
 - [Packaging layout](doc/packaging-layout.md)
 - [Packaging model](doc/packaging-model.md)
-

@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
 
 use crate::arch::Arch;
 
@@ -18,29 +17,16 @@ pub struct StageOutput {
     pub package: PackageInfo,
 }
 
-#[derive(Debug, Deserialize)]
-struct CargoManifest {
-    package: ManifestPackage,
-}
-
-#[derive(Debug, Deserialize)]
-struct ManifestPackage {
-    name: String,
-}
-
 pub fn stage_binary_from_target_dir(
     workspace_root: &Path,
     arch: Arch,
     rust_target: &str,
     target_dir: &Path,
     release: bool,
-    package_override: Option<&str>,
+    package_name: &str,
 ) -> Result<StageOutput> {
-    let package = match package_override {
-        Some(name) => PackageInfo {
-            name: name.to_string(),
-        },
-        None => read_manifest_package(&workspace_root.join("Cargo.toml"))?,
+    let package = PackageInfo {
+        name: package_name.to_string(),
     };
     let profile_dir = if release { "release" } else { "debug" };
     let source_binary = target_dir
@@ -81,15 +67,5 @@ pub fn stage_binary_from_target_dir(
         stage_root,
         staged_binary,
         package,
-    })
-}
-
-fn read_manifest_package(path: &Path) -> Result<PackageInfo> {
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("failed to read manifest {}", path.display()))?;
-    let parsed: CargoManifest = toml::from_str(&raw)
-        .with_context(|| format!("failed to parse manifest {}", path.display()))?;
-    Ok(PackageInfo {
-        name: parsed.package.name,
     })
 }

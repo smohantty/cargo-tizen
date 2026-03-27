@@ -32,6 +32,7 @@ pub struct Config {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DefaultConfig {
     pub arch: Option<String>,
+    pub package: Option<String>,
     pub profile: Option<String>,
     pub platform_version: Option<String>,
     pub provider: Option<String>,
@@ -143,6 +144,10 @@ impl Config {
         self.default.packaging_dir.as_deref().map(expand_tilde)
     }
 
+    pub fn default_package(&self) -> Option<&str> {
+        self.default.package.as_deref()
+    }
+
     pub fn linker_for(&self, arch: Arch) -> String {
         self.arch
             .get(arch.as_str())
@@ -225,6 +230,9 @@ impl DefaultConfig {
     fn merge(&mut self, other: Self) {
         if other.arch.is_some() {
             self.arch = other.arch;
+        }
+        if other.package.is_some() {
+            self.package = other.package;
         }
         if other.profile.is_some() {
             self.profile = other.profile;

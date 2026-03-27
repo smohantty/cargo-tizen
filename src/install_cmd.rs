@@ -33,7 +33,7 @@ pub fn run_install(ctx: &AppContext, args: &InstallArgs) -> Result<()> {
             output: args.output.clone(),
             sign: resolved_sign,
         };
-        let packaged = tpk::package_tpk(ctx, &tpk_args)?;
+        let packaged = tpk::package_tpk_with_command(ctx, &tpk_args, "install")?;
         let chosen = choose_tpk(&packaged.tpk_files)?;
         if packaged.tpk_files.len() > 1 {
             ctx.info(format!(

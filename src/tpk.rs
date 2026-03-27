@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
 
 use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, TpkArgs};
 use crate::context::AppContext;
+use crate::package_select::{self, PackageSource};
 use crate::packaging::PackagingLayout;
 use crate::rust_target;
 use crate::sdk::TizenSdk;
@@ -22,16 +22,6 @@ pub struct TpkPackageOutput {
     pub tpk_files: Vec<PathBuf>,
 }
 
-#[derive(Debug, Deserialize)]
-struct CargoManifest {
-    package: ManifestPackage,
-}
-
-#[derive(Debug, Deserialize)]
-struct ManifestPackage {
-    name: String,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SigningProfileSource {
     Cli,
@@ -39,22 +29,35 @@ enum SigningProfileSource {
 }
 
 pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
-    let output = package_tpk(ctx, args)?;
+    let output = package_tpk_with_command(ctx, args, "tpk")?;
     for tpk in output.tpk_files {
         ctx.info(format!("generated TPK: {}", tpk.display()));
     }
     Ok(())
 }
 
-pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput> {
-    let arch = arch_detect::resolve_arch(ctx, args.arch, "tpk")?;
+pub fn package_tpk_with_command(
+    ctx: &AppContext,
+    args: &TpkArgs,
+    command_name: &str,
+) -> Result<TpkPackageOutput> {
+    let arch = arch_detect::resolve_arch(ctx, args.arch, command_name)?;
     let rust_target = rust_target::resolve_for_arch(ctx, arch)?;
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
+    let selected_package =
+        package_select::resolve_for_command(ctx, args.package.as_deref(), command_name)?;
+
+    if selected_package.source == PackageSource::Config {
+        ctx.info(format!(
+            "auto-selected package {} from [default].package for `cargo tizen {}`",
+            selected_package.name, command_name
+        ));
+    }
 
     if !args.no_build {
         let mut cargo_args = Vec::new();
-        if let Some(pkg) = &args.package {
-            cargo_args.extend(["-p".to_string(), pkg.clone()]);
+        if selected_package.source.requires_cargo_package_arg() {
+            cargo_args.extend(["-p".to_string(), selected_package.name.clone()]);
         }
         let build_args = BuildArgs {
             arch: Some(arch),
@@ -75,10 +78,7 @@ pub fn package_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<TpkPackageOutput>
         .clone()
         .or_else(|| ctx.config.packaging_dir());
     let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
-    let package_name = match &args.package {
-        Some(name) => name.clone(),
-        None => manifest_package(&ctx.workspace_root.join("Cargo.toml"))?.name,
-    };
+    let package_name = selected_package.name;
     let source_binary = build_target_dir
         .join(&rust_target)
         .join(profile_dir)
@@ -333,14 +333,6 @@ fn shell_escape(value: &OsStr) -> String {
     } else {
         format!("'{}'", value.replace('\'', r#"'\''"#))
     }
-}
-
-fn manifest_package(path: &Path) -> Result<ManifestPackage> {
-    let raw = fs::read_to_string(path)
-        .with_context(|| format!("failed to read Cargo manifest {}", path.display()))?;
-    let parsed: CargoManifest = toml::from_str(&raw)
-        .with_context(|| format!("failed to parse Cargo manifest {}", path.display()))?;
-    Ok(parsed.package)
 }
 
 fn stage_manifest(packaging: &PackagingLayout, staged_manifest: &Path) -> Result<PathBuf> {

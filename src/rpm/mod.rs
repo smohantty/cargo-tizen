@@ -4,6 +4,7 @@ use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, RpmArgs};
 use crate::context::AppContext;
+use crate::package_select::{self, PackageSource};
 use crate::packaging::PackagingLayout;
 use crate::rust_target;
 
@@ -14,11 +15,20 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
     let arch = arch_detect::resolve_arch(ctx, args.arch, "rpm")?;
     let rust_target = rust_target::resolve_for_arch(ctx, arch)?;
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
+    let selected_package =
+        package_select::resolve_for_command(ctx, args.package.as_deref(), "rpm")?;
+
+    if selected_package.source == PackageSource::Config {
+        ctx.info(format!(
+            "auto-selected package {} from [default].package for `cargo tizen rpm`",
+            selected_package.name
+        ));
+    }
 
     if !args.no_build {
         let mut cargo_args = Vec::new();
-        if let Some(pkg) = &args.package {
-            cargo_args.extend(["-p".to_string(), pkg.clone()]);
+        if selected_package.source.requires_cargo_package_arg() {
+            cargo_args.extend(["-p".to_string(), selected_package.name.clone()]);
         }
         let build_args = BuildArgs {
             arch: Some(arch),
@@ -35,7 +45,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         &rust_target,
         &build_target_dir,
         args.cargo_release,
-        args.package.as_deref(),
+        &selected_package.name,
     )?;
     ctx.debug(format!("staging root: {}", stage.stage_root.display()));
 
@@ -50,7 +60,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         .clone()
         .or_else(|| ctx.config.packaging_dir());
     let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
-    let spec_path = packaging.resolve_rpm_spec(&stage.package.name)?;
+    let spec_path = packaging.resolve_rpm_spec(&selected_package.name)?;
 
     let extra_sources = match packaging.rpm_sources_dir()? {
         Some(dir) => {

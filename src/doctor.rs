@@ -7,6 +7,7 @@ use crate::arch::Arch;
 use crate::cli::DoctorArgs;
 use crate::context::AppContext;
 use crate::output::{Section, color_enabled, print_report};
+use crate::package_select::{self, ManifestKind};
 use crate::packaging::PackagingLayout;
 use crate::rust_target;
 use crate::sdk::TizenSdk;
@@ -276,18 +277,31 @@ fn build_packaging_section(ctx: &AppContext) -> Section {
         return sec;
     }
 
-    let package_name = match current_package_name(&manifest_path) {
-        Ok(Some(name)) => name,
-        Ok(None) => {
-            sec.warn(
-                "workspace manifest detected; package/member packaging is not implemented yet",
-            );
-            return sec;
+    let package_name = match ctx.config.default_package() {
+        Some(name) => {
+            sec.ok(format!(
+                "selected package: {} (from [default].package)",
+                name
+            ));
+            name.to_string()
         }
-        Err(err) => {
-            sec.warn(format!("failed to inspect Cargo.toml for packaging: {err}"));
-            return sec;
-        }
+        None => match package_select::inspect_manifest(&manifest_path) {
+            Ok(ManifestKind::Package(name)) => name,
+            Ok(ManifestKind::Workspace) => {
+                sec.warn(
+                    "workspace manifest detected; set [default].package or pass -p <member> to rpm/tpk/install",
+                );
+                return sec;
+            }
+            Ok(ManifestKind::Unknown) => {
+                sec.warn("failed to determine package name from Cargo.toml");
+                return sec;
+            }
+            Err(err) => {
+                sec.warn(format!("failed to inspect Cargo.toml for packaging: {err}"));
+                return sec;
+            }
+        },
     };
 
     let packaging_root = ctx.config.packaging_dir();
@@ -309,19 +323,6 @@ fn build_packaging_section(ctx: &AppContext) -> Section {
     }
 
     sec
-}
-
-fn current_package_name(path: &Path) -> Result<Option<String>> {
-    let raw = std::fs::read_to_string(path)?;
-    let parsed: toml::Value = toml::from_str(&raw)?;
-    if let Some(name) = parsed
-        .get("package")
-        .and_then(|value| value.get("name"))
-        .and_then(|value| value.as_str())
-    {
-        return Ok(Some(name.to_string()));
-    }
-    Ok(None)
 }
 
 fn version_sort_key(version: &str) -> (u64, u64) {

@@ -1,0 +1,13 @@
+[Unit]
+Description=hello-service reference daemon
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/hello-service.env
+ExecStart=/usr/bin/hello-service
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

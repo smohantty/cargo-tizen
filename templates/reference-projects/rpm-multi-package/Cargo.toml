@@ -1,0 +1,3 @@
+[workspace]
+members = ["hello-server", "hello-cli", "hello-lib"]
+resolver = "2"

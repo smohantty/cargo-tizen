@@ -52,6 +52,21 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
     let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
     let spec_path = packaging.resolve_rpm_spec(&stage.package.name)?;
 
+    let extra_sources = match packaging.rpm_sources_dir()? {
+        Some(dir) => {
+            let sources = rpmbuild::collect_extra_sources(&dir, &stage.package.name)?;
+            if !sources.is_empty() {
+                ctx.info(format!(
+                    "found {} extra RPM source(s) in {}",
+                    sources.len(),
+                    dir.display()
+                ));
+            }
+            sources
+        }
+        None => Vec::new(),
+    };
+
     let rpms = rpmbuild::build_rpm(
         ctx,
         &ctx.workspace_root,
@@ -61,6 +76,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         &spec_path,
         &stage.staged_binary,
         &stage.package.name,
+        &extra_sources,
         args.output.as_deref(),
     )?;
 

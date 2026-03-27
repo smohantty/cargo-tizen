@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -8,6 +9,57 @@ use crate::arch::Arch;
 use crate::context::AppContext;
 use crate::tool_env;
 
+pub fn collect_extra_sources(sources_dir: &Path, binary_name: &str) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    let mut seen_names = HashSet::new();
+    seen_names.insert(binary_name.to_string());
+
+    let mut entries: Vec<_> = fs::read_dir(sources_dir)
+        .with_context(|| format!("failed to read RPM sources dir {}", sources_dir.display()))?
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| {
+            format!(
+                "failed to iterate RPM sources dir {}",
+                sources_dir.display()
+            )
+        })?;
+    entries.sort_by_key(|e| e.file_name());
+
+    for entry in entries {
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        if name.starts_with('.') {
+            continue;
+        }
+
+        let meta = fs::symlink_metadata(&path)
+            .with_context(|| format!("failed to stat {}", path.display()))?;
+        if meta.is_symlink() {
+            bail!(
+                "RPM sources dir contains symlink: {}\nsymlinks are not supported; use regular files only",
+                path.display()
+            );
+        }
+
+        if !meta.is_file() {
+            continue;
+        }
+
+        if !seen_names.insert(name.clone()) {
+            bail!(
+                "RPM source name collision: `{name}` conflicts with another source or the binary\n\
+                 each file in <packaging-dir>/rpm/sources/ must have a unique name\n\
+                 the binary is always Source0 with name `{binary_name}`"
+            );
+        }
+
+        files.push(path);
+    }
+
+    Ok(files)
+}
+
 pub fn build_rpm(
     ctx: &AppContext,
     workspace_root: &Path,
@@ -17,6 +69,7 @@ pub fn build_rpm(
     spec_path: &Path,
     staged_binary: &Path,
     binary_name: &str,
+    extra_sources: &[PathBuf],
     output_override: Option<&Path>,
 ) -> Result<Vec<PathBuf>> {
     let topdir = workspace_root
@@ -39,6 +92,21 @@ pub fn build_rpm(
             source_binary.display()
         )
     })?;
+
+    for source in extra_sources {
+        let dest = topdir.join("SOURCES").join(
+            source
+                .file_name()
+                .ok_or_else(|| anyhow::anyhow!("invalid source path: {}", source.display()))?,
+        );
+        fs::copy(source, &dest).with_context(|| {
+            format!(
+                "failed to copy RPM source {} -> {}",
+                source.display(),
+                dest.display()
+            )
+        })?;
+    }
 
     let spec_in_topdir = topdir.join("SPECS").join(
         spec_path
@@ -174,7 +242,10 @@ fn collect_rpms(root: &Path) -> Result<Vec<PathBuf>> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_cross_rpm_build;
+    use std::fs;
+    use std::path::PathBuf;
+
+    use super::{collect_extra_sources, is_cross_rpm_build};
     use crate::arch::Arch;
 
     #[test]
@@ -185,5 +256,49 @@ mod tests {
 
         let expected_for_aarch64 = !matches!(std::env::consts::ARCH, "aarch64" | "arm64");
         assert_eq!(is_cross_rpm_build(Arch::Aarch64), expected_for_aarch64);
+    }
+
+    #[test]
+    fn collect_extra_sources_from_reference_project() {
+        let sources_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("templates/reference-projects/rpm-service-app/tizen/rpm/sources");
+        let files =
+            collect_extra_sources(&sources_dir, "hello-service").expect("should collect sources");
+        let names: Vec<_> = files
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().to_string())
+            .collect();
+        assert!(names.contains(&"hello-service.env".to_string()));
+        assert!(names.contains(&"hello-service.service".to_string()));
+    }
+
+    #[test]
+    fn collect_extra_sources_rejects_binary_name_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("mybinary"), "fake").unwrap();
+        let err =
+            collect_extra_sources(dir.path(), "mybinary").expect_err("should reject collision");
+        assert!(err.to_string().contains("collision"));
+    }
+
+    #[test]
+    fn collect_extra_sources_skips_dotfiles() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".gitkeep"), "").unwrap();
+        fs::write(dir.path().join("real-source"), "content").unwrap();
+        let files = collect_extra_sources(dir.path(), "mybinary").expect("should collect sources");
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            files[0].file_name().unwrap().to_string_lossy(),
+            "real-source"
+        );
+    }
+
+    #[test]
+    fn collect_extra_sources_empty_dir_is_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let files =
+            collect_extra_sources(dir.path(), "mybinary").expect("empty dir should succeed");
+        assert!(files.is_empty());
     }
 }

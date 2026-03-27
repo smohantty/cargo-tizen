@@ -90,10 +90,7 @@ mod tests {
 
     #[test]
     fn choose_tpk_multiple_picks_first() {
-        let paths = vec![
-            PathBuf::from("/out/a.tpk"),
-            PathBuf::from("/out/b.tpk"),
-        ];
+        let paths = vec![PathBuf::from("/out/a.tpk"), PathBuf::from("/out/b.tpk")];
         assert_eq!(choose_tpk(&paths).unwrap(), PathBuf::from("/out/a.tpk"));
     }
 

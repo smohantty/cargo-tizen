@@ -13,14 +13,16 @@ For any feature, refactor, or bug fix request in this repo, default to gstack be
 
 Do not substitute an ad hoc workflow.
 
-Review must come from a different agent than the one doing the work, and plan review must follow the same separation rule as code review.
+Review must come from a different coding agent than the one doing the work, and plan review must follow the same separation rule as code review.
 
 - The primary planning agent must not be the final reviewer of its own plan.
-- `/autoplan` (or an equivalent explicit plan-review flow) must use at least one independent review agent from a different model family than the primary planner.
+- `/autoplan` (or an equivalent explicit plan-review flow) must use at least one independent review agent that is not the same coding agent as the primary planner.
+- Example: if Claude is the planner, review must be done by Codex. If Codex is the planner, review must be done by Claude.
 - The implementing agent must not be the final reviewer of its own patch.
-- Code review must use at least one independent review agent from a different model family than the primary coder.
+- Code review must use at least one independent review agent that is not the same coding agent as the primary coder.
+- Example: if Claude is the coder, review must be done by Codex. If Codex is the coder, review must be done by Claude.
 - Prefer using more than one review agent for both plan review and code review on non-trivial changes.
-- If a different-model reviewer is unavailable for either plan review or code review, say so explicitly and stop to ask the user before treating the work as reviewed.
+- If a different coding agent is unavailable for either plan review or code review, say so explicitly and stop to ask the user before treating the work as reviewed.
 
 If the git tree is dirty, the scope changes, or a required gstack step cannot be followed cleanly, stop and ask the user before proceeding.
 

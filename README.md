@@ -15,6 +15,12 @@ cargo tizen run -A armv7l --cargo-release
 cargo install --git https://github.com/<owner>/cargo-tizen
 ```
 
+Or from a local clone:
+
+```bash
+cargo install --path .
+```
+
 Verify:
 
 ```bash

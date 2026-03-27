@@ -13,6 +13,14 @@ For any feature, refactor, or bug fix request in this repo, default to gstack be
 
 Do not substitute an ad hoc workflow.
 
+Review must come from a different agent than the one that wrote the code.
+
+- The implementing agent must not be the final reviewer of its own patch.
+- Use at least one independent review agent before finishing.
+- Prefer a reviewer from a different model family than the coder (for example, Codex-family implementer reviewed by a frontier non-Codex model, or vice versa).
+- If multiple review agents are available, use more than one for non-trivial changes.
+- If a different-model reviewer is unavailable in the environment, say so explicitly and stop to ask the user before treating the work as fully reviewed.
+
 If the git tree is dirty, the scope changes, or a required gstack step cannot be followed cleanly, stop and ask the user before proceeding.
 
 ## Project intent
@@ -119,5 +127,5 @@ cargo run -- <subcommand> --help
 
 - `repo` sysroot provider is not implemented.
 - `package.metadata.tizen` schema is documented but not wired into staging/spec generation yet.
-- RPM/TPK staging assumes binary name matches `[package].name` (multi-bin selection not implemented).
+- Workspace/member packaging requires explicit `--package` / `--bin` when selection is ambiguous.
 - End-to-end packaging tests require real Tizen SDK/rootstraps and host toolchain availability.

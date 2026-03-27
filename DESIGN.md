@@ -432,6 +432,10 @@ Given `cargo tizen rpm -A aarch64`:
 4. Resolve spec:
    - `<packaging-dir>/rpm/<cargo-package-name>.spec`
    - fail if it does not exist
+4b. If `<packaging-dir>/rpm/sources/` exists, collect its regular files as extra sources.
+   - Dotfiles are skipped; symlinks are rejected.
+   - Name collisions with the binary are rejected.
+   - Collected files are copied into `rpmbuild/SOURCES/` alongside the binary.
 5. Prepare rpmbuild tree:
    - `target/tizen/<arch>/<debug|release>/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}`
 6. Invoke:

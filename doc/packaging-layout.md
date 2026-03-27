@@ -10,6 +10,7 @@ By default the packaging root is `<workspace>/tizen`:
 tizen/
   rpm/
     <cargo-package-name>.spec
+    sources/      # optional, contents copied to rpmbuild SOURCES/
   tpk/
     tizen-manifest.xml
     reference/    # optional, passed to `tizen package -r`
@@ -34,6 +35,7 @@ packaging_dir = "./packaging"
 ## Command expectations
 
 - `cargo tizen rpm` looks for `<packaging-dir>/rpm/<cargo-package-name>.spec`.
+- `cargo tizen rpm` also checks for an optional `<packaging-dir>/rpm/sources/` directory. If present, all regular files inside are copied into `rpmbuild/SOURCES/` alongside the binary. Use this for systemd units, environment files, configs, or any other non-binary sources your spec references as `Source1:`, `Source2:`, etc. Dotfiles are skipped and symlinks are rejected.
 - `cargo tizen tpk` looks for `<packaging-dir>/tpk/tizen-manifest.xml`.
 - `cargo tizen install` is TPK-only. When `--tpk` is omitted, it uses the same TPK packaging layout as `cargo tizen tpk`.
 
@@ -59,6 +61,7 @@ Those locations are no longer loaded automatically. Move the manifest to `<packa
 
 The repo includes example Cargo projects that also act as regression fixtures:
 
-- `templates/reference-projects/rpm-app`
+- `templates/reference-projects/rpm-app` — minimal binary-only RPM
+- `templates/reference-projects/rpm-service-app` — RPM with extra sources (systemd unit, env file)
 - `templates/reference-projects/tpk-service-app`
 

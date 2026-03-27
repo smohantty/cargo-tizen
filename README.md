@@ -12,13 +12,7 @@ cargo tizen run -A armv7l --cargo-release
 ## Install
 
 ```bash
-cargo install --git https://github.com/nickalready/cargo-tizen
-```
-
-Or from a local clone:
-
-```bash
-cargo install --path .
+cargo install --git https://github.com/<owner>/cargo-tizen
 ```
 
 Verify:
@@ -54,7 +48,7 @@ sudo apt install gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
 
 ### 3. Tizen SDK
 
-Install either [Tizen Studio](https://developer.tizen.org/development/tizen-studio/download) or the [VS Code Extension for Tizen](https://marketplace.visualstudio.com/items?itemName=nickelready.nickelready-vscode-tizen).
+Install [Tizen Studio](https://developer.tizen.org/development/tizen-studio/download).
 
 Then install rootstrap packages for your target profile and platform version through the SDK Package Manager.
 
@@ -166,11 +160,6 @@ You can persist that root in `.cargo-tizen.toml`:
 packaging_dir = "./packaging"
 ```
 
-Reference projects live in:
-
-- `templates/reference-projects/rpm-app`
-- `templates/reference-projects/tpk-service-app`
-
 See [doc/packaging-layout.md](doc/packaging-layout.md) for the full layout contract and migration notes.
 
 ## Architecture Selection
@@ -212,12 +201,12 @@ linker = "arm-linux-gnueabi-gcc"
 linker = "aarch64-linux-gnu-gcc"
 ```
 
-## Current Packaging Gaps
+## Packaging Limitations
 
-- Packaging assumes the built binary name matches `[package].name`.
-- Multi-bin and renamed-bin packaging are not implemented yet.
-- Workspace/member packaging is not implemented yet. Run packaging commands from a concrete package crate.
-- `run` is TPK-only.
+- The packaged binary name must match `[package].name` in `Cargo.toml`.
+- Multi-bin and custom `[[bin]]` names are not yet supported.
+- Workspace packaging requires running commands from the specific package crate, not the workspace root.
+- `cargo tizen run` deploys TPK only (not RPM).
 
 ## TPK Signing
 
@@ -280,13 +269,3 @@ Check `sdb devices` shows your target as `device`. For network devices: `sdb con
 - [Packaging layout](doc/packaging-layout.md)
 - [Packaging model](doc/packaging-model.md)
 
-## Development
-
-Build and test from this repository:
-
-```bash
-cargo build
-cargo test
-```
-
-Upstream reference: [flutter-tizen](https://github.com/flutter-tizen/flutter-tizen) — `cargo-tizen` adapts its SDK/rootstrap/device workflow patterns for Rust.

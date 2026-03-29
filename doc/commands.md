@@ -6,11 +6,42 @@
 cargo tizen <command> [options]
 ```
 
+For the fastest onboarding path, start with the built-in help:
+
+```sh
+cargo tizen --help
+cargo tizen <command> --help
+```
+
+The generated help includes short command descriptions, usage notes, and runnable examples.
+
+Quick start:
+
+```sh
+cargo tizen doctor
+cargo tizen fix
+```
+
 Global options:
 
-- `-v, --verbose`
-- `-q, --quiet`
-- `--config <path>`
+- `-v, --verbose`: print detailed progress and diagnostics
+- `-q, --quiet`: reduce output to warnings and errors
+- `--config <path>`: merge an additional config file after the default user and project config
+
+Command summary:
+
+| Command | Description |
+|---|---|
+| `setup` | Prepare and cache a Tizen sysroot for cross-compilation |
+| `build` | Cross-build the current Rust project for a Tizen target |
+| `rpm` | Package the project as an RPM using an existing spec file |
+| `tpk` | Package the project as a signed TPK using the Tizen CLI |
+| `devices` | List connected Tizen devices discovered via `sdb` |
+| `install` | Build or reuse a TPK and install it on a connected device |
+| `doctor` | Check SDK, toolchain, sysroot, and packaging readiness |
+| `fix` | Install missing Rust targets and prepare missing sysroots |
+| `clean` | Remove build outputs and/or cached sysroots |
+| `config` | View or update persistent `cargo-tizen` settings |
 
 Packaging format:
 

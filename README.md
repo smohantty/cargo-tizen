@@ -27,6 +27,15 @@ Verify:
 cargo tizen --help
 ```
 
+The built-in help is intended to be the fastest onboarding path:
+
+```bash
+cargo tizen --help
+cargo tizen <command> --help
+```
+
+Each command help page includes plain-language descriptions, notes, and examples.
+
 ## Prerequisites
 
 ### 1. Rust cross-compilation targets
@@ -259,16 +268,16 @@ For Samsung TVs, create a **Samsung** type profile in Certificate Manager with y
 
 | Command | Description |
 |---------|-------------|
-| `cargo tizen build` | Cross-build Rust project |
-| `cargo tizen rpm` | Build and package as RPM |
-| `cargo tizen tpk` | Build and package as TPK |
-| `cargo tizen install` | Build, package, and install on device |
-| `cargo tizen devices` | List connected Tizen devices |
-| `cargo tizen setup` | Pre-populate sysroot cache |
-| `cargo tizen doctor` | Check toolchain and SDK readiness |
-| `cargo tizen fix` | Auto-fix missing Rust targets and sysroots |
+| `cargo tizen build` | Cross-build the current Rust project for a Tizen target |
+| `cargo tizen rpm` | Package the project as an RPM using an existing spec file |
+| `cargo tizen tpk` | Package the project as a signed TPK using the Tizen CLI |
+| `cargo tizen install` | Build or reuse a TPK and install it on a connected device |
+| `cargo tizen devices` | List connected Tizen devices discovered via `sdb` |
+| `cargo tizen setup` | Prepare and cache a Tizen sysroot for cross-compilation |
+| `cargo tizen doctor` | Check SDK, toolchain, sysroot, and packaging readiness |
+| `cargo tizen fix` | Install missing Rust targets and prepare missing sysroots |
 | `cargo tizen clean` | Remove build outputs and/or cached sysroots |
-| `cargo tizen config` | View or set persistent configuration |
+| `cargo tizen config` | View or update persistent `cargo-tizen` settings |
 
 See [doc/commands.md](doc/commands.md) for full flag reference.
 

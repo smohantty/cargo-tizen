@@ -87,6 +87,11 @@ Global options:
 - `-q, --quiet`
 - `--config <PATH>` (explicit config file override)
 
+Help output requirements:
+- Top-level help should present the user-facing invocation as `cargo tizen ...`.
+- Top-level help should include subcommand descriptions plus quick-start guidance for `doctor`, `fix`, and the common build/package/install flows.
+- Each subcommand help page should include clear option descriptions and runnable examples.
+
 ## 4.2 `setup`
 
 ```bash

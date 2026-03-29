@@ -7,6 +7,7 @@ use crate::sysroot::provider::ProviderKind;
 
 const ROOT_AFTER_HELP: &str = "\
 Quick start:
+  cargo tizen init
   cargo tizen doctor
   cargo tizen fix
 
@@ -28,6 +29,18 @@ Examples:
 Notes:
   setup is optional for normal build and packaging flows.
   build, rpm, tpk, and install prepare the sysroot automatically when needed.";
+
+const INIT_AFTER_HELP: &str = "\
+Examples:
+  cargo tizen init
+  cargo tizen init --rpm
+  cargo tizen init --tpk -p my-app
+  cargo tizen init --rpm --tpk --force
+
+Notes:
+  init creates .cargo-tizen.toml when it is missing.
+  Packaging scaffolds are only created when you pass --rpm and/or --tpk.
+  Existing files are left untouched unless --force is passed for packaging files.";
 
 const BUILD_AFTER_HELP: &str = "\
 Examples:
@@ -121,7 +134,7 @@ Notes:
     name = "cargo-tizen",
     bin_name = "cargo tizen",
     about = "Cross-build Rust projects for Tizen and package them as RPM or TPK",
-    long_about = "Cross-build Rust projects for Tizen, prepare SDK sysroots, and package artifacts as RPM or TPK.\n\nStart with doctor to verify prerequisites, use fix to repair common setup gaps, then use build, rpm, tpk, or install for day-to-day work.",
+    long_about = "Cross-build Rust projects for Tizen, prepare SDK sysroots, and package artifacts as RPM or TPK.\n\nStart with init to scaffold starter files, doctor to verify prerequisites, and fix to repair common setup gaps. Then use build, rpm, tpk, or install for day-to-day work.",
     after_help = ROOT_AFTER_HELP,
     after_long_help = ROOT_AFTER_HELP,
     arg_required_else_help = true,
@@ -141,6 +154,12 @@ pub enum Command {
         after_long_help = SETUP_AFTER_HELP
     )]
     Setup(SetupArgs),
+    #[command(
+        about = "Create starter config and packaging files for the current project",
+        after_help = INIT_AFTER_HELP,
+        after_long_help = INIT_AFTER_HELP
+    )]
+    Init(InitArgs),
     #[command(
         about = "Cross-build the current Rust project for a Tizen target",
         after_help = BUILD_AFTER_HELP,
@@ -233,6 +252,25 @@ pub struct SetupArgs {
         long,
         help = "Rebuild the cached sysroot even if a matching entry already exists"
     )]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, Args)]
+pub struct InitArgs {
+    #[arg(long, help = "Create RPM packaging scaffold only")]
+    pub rpm: bool,
+
+    #[arg(long, help = "Create TPK packaging scaffold only")]
+    pub tpk: bool,
+
+    #[arg(
+        short = 'p',
+        long,
+        help = "Workspace member to scaffold when running from a workspace root"
+    )]
+    pub package: Option<String>,
+
+    #[arg(long, help = "Overwrite existing scaffold files")]
     pub force: bool,
 }
 
@@ -482,6 +520,7 @@ mod tests {
 
         assert!(help.contains("Usage: cargo tizen <COMMAND>"));
         assert!(help.contains("Prepare and cache a Tizen sysroot for cross-compilation"));
+        assert!(help.contains("Create starter config and packaging files for the current project"));
         assert!(help.contains("Build or reuse a TPK and install it on a connected device"));
         assert!(help.contains("Quick start:"));
         assert!(help.contains("cargo tizen doctor"));

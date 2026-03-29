@@ -9,6 +9,7 @@ mod context;
 mod device;
 mod doctor;
 mod fix;
+mod init_cmd;
 mod install_cmd;
 mod output;
 mod package_select;
@@ -43,6 +44,7 @@ fn main() -> Result<()> {
 
     match cli.command {
         Command::Setup(args) => sysroot::run_setup(&ctx, &args)?,
+        Command::Init(args) => init_cmd::run_init(&ctx, &args)?,
         Command::Build(args) => cargo_runner::run_build(&ctx, &args)?,
         Command::Rpm(args) => rpm::run_rpm(&ctx, &args)?,
         Command::Tpk(args) => tpk::run_tpk(&ctx, &args)?,

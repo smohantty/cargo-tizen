@@ -21,6 +21,7 @@ When changing SDK/rootstrap/device workflows, check upstream behavior first and 
 
 ## Command surface (must stay stable unless explicitly changed)
 
+- `cargo tizen init`
 - `cargo tizen setup`
 - `cargo tizen build`
 - `cargo tizen rpm`
@@ -42,6 +43,7 @@ in the same patch.
 
 - CLI + dispatch: `src/main.rs`, `src/cli.rs`
 - Config: `src/config.rs`
+- Init scaffolding: `src/init_cmd.rs`
 - Arch mapping: `src/arch.rs`
 - SDK discovery: `src/sdk.rs`
 - Tool env injection: `src/tool_env.rs`

@@ -22,8 +22,9 @@ Upstream adaptation reference:
 ## 1.1 Implementation Status (Current)
 
 Implemented:
-- CLI scaffold for `setup`, `build`, `rpm`, `tpk`, `devices`, `install`, `doctor`, `fix`, `clean`, `config`.
+- CLI scaffold for `init`, `setup`, `build`, `rpm`, `tpk`, `devices`, `install`, `doctor`, `fix`, `clean`, `config`.
 - `ArchMap` defaults for Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
+- Project scaffolding for starter `.cargo-tizen.toml`, RPM spec, and TPK manifest files.
 - Rootstrap-based sysroot provisioning from installed Tizen SDK rootstraps.
 - Rootstrap fallback policy for missing `tv-samsung` rootstraps.
 - Sysroot cache with metadata, lock, and atomic finalize.
@@ -89,7 +90,24 @@ Help output requirements:
 - Top-level help should include subcommand descriptions plus quick-start guidance for `doctor`, `fix`, and the common build/package/install flows.
 - Each subcommand help page should include clear option descriptions and runnable examples.
 
-## 4.2 `setup`
+## 4.2 `init`
+
+```bash
+cargo tizen init [--rpm] [--tpk] [-p <package>] [--force]
+```
+
+Purpose:
+- Create starter project files for cargo-tizen onboarding.
+- Lower the setup barrier for first-time RPM and TPK packaging.
+
+Behavior:
+- With no format flags, creates `.cargo-tizen.toml` only.
+- Creates `.cargo-tizen.toml` when it is missing.
+- Creates `<packaging-dir>/rpm/<package-name>.spec` and/or `<packaging-dir>/tpk/tizen-manifest.xml`.
+- Existing packaging files are skipped unless `--force` is passed.
+- In a workspace root, requires `-p/--package` when no default package is configured.
+
+## 4.3 `setup`
 
 ```bash
 cargo tizen setup [-A <armv7l|aarch64>] [--profile <name>] [--platform-version <ver>] [--provider <rootstrap|repo>] [--sdk-root <path>]
@@ -113,7 +131,7 @@ Selection behavior:
 - For rootstrap provider, when profile/version are omitted, `cargo-tizen` scans installed SDK rootstraps for the selected arch and chooses a best installed match.
 - If a requested profile/version is not installed, error output includes installed `--platform-version/--profile` pairs.
 
-## 4.3 `build`
+## 4.4 `build`
 
 ```bash
 cargo tizen build [-A <armv7l|aarch64>] [--release] [--target-dir <path>] [-- <cargo_build_args...>]
@@ -129,7 +147,7 @@ Behavior:
 - Sets target-specific linker/rustflags.
 - Keeps output isolated under Tizen target directory by default.
 
-## 4.4 `rpm`
+## 4.5 `rpm`
 
 ```bash
 cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--no-build]
@@ -145,7 +163,7 @@ Behavior:
 - Invoke `rpmbuild` with an isolated `_topdir`.
 - Emit resulting RPM path(s).
 
-## 4.5 `devices`
+## 4.6 `devices`
 
 ```bash
 cargo tizen devices [--all]
@@ -160,7 +178,7 @@ Behavior:
 - Verifies Tizen targets using `sdb -s <id> capability` (`cpu_arch` check).
 - `--all` includes non-ready and non-Tizen entries.
 
-## 4.6 `install`
+## 4.7 `install`
 
 ```bash
 cargo tizen install [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>]
@@ -176,7 +194,7 @@ Behavior:
 - Requires `-d/--device` when multiple devices are ready.
 - Installs with `sdb -s <id> install <tpk>`.
 
-## 4.7 `doctor`
+## 4.8 `doctor`
 
 ```bash
 cargo tizen doctor [-A <armv7l|aarch64>]
@@ -193,7 +211,7 @@ Checks:
 - Config consistency.
 - Default output is concise; `-v` enables detailed per-check path output.
 
-## 4.8 `fix`
+## 4.9 `fix`
 
 ```bash
 cargo tizen fix [-A <armv7l|aarch64>]
@@ -208,7 +226,7 @@ Behavior:
 - Ensures sysroot cache is ready for selected architectures (runs `setup` defaults when missing).
 - If `rpmbuild` is missing, prints warning + distro-specific install guidance (no automatic host package installation).
 
-## 4.9 `clean`
+## 4.10 `clean`
 
 ```bash
 cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]
@@ -217,7 +235,7 @@ cargo tizen clean [--sysroot] [--build] [--all] [-A <armv7l|aarch64>]
 Purpose:
 - Remove build outputs and/or cached sysroots.
 
-## 4.10 `config`
+## 4.11 `config`
 
 ```bash
 cargo tizen config [--sign <profile>] [--show]
@@ -231,7 +249,7 @@ Behavior:
 - `--sign ""`: clear the stored signing profile.
 - `--show` or no flags: print current resolved configuration values.
 
-## 4.11 `tpk`
+## 4.12 `tpk`
 
 ```bash
 cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build]

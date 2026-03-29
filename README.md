@@ -114,6 +114,16 @@ RPM, TPK, and `install` currently assume the built binary lives at
 `<target-dir>/<rust-target>/<debug|release>/<package-name>`. Projects with a custom `[[bin]]` name or multiple
 binaries should make sure the packaged binary name matches `[package].name` in `Cargo.toml`.
 
+### Scaffold starter files
+
+```bash
+cargo tizen init
+```
+
+This creates starter RPM spec and TPK manifest files when they are missing. It only writes `.cargo-tizen.toml` when it
+is missing. Use `cargo tizen init --rpm` or `cargo tizen init --tpk` to add packaging scaffolds. Existing packaging
+files are left untouched unless you rerun with `--force`.
+
 ### Cross-build
 
 ```bash
@@ -175,7 +185,8 @@ Files in `rpm/sources/` are copied into `rpmbuild/SOURCES/` so your spec can
 reference them as `Source1:`, `Source2:`, etc. Useful for systemd units, env files,
 and configs. See `templates/reference-projects/rpm-service-app/` for a working example.
 
-`cargo-tizen` does not auto-generate missing spec or manifest files.
+Use `cargo tizen init` to create starter packaging files. The packaging commands themselves do not auto-generate missing
+spec or manifest files on demand.
 
 For a non-standard layout, point commands at a different packaging root:
 
@@ -270,6 +281,7 @@ For Samsung TVs, create a **Samsung** type profile in Certificate Manager with y
 | Command | Description |
 |---------|-------------|
 | `cargo tizen build` | Cross-build the current Rust project for a Tizen target |
+| `cargo tizen init` | Create starter config and packaging files for the current project |
 | `cargo tizen rpm` | Package the project as an RPM using an existing spec file |
 | `cargo tizen tpk` | Package the project as a signed TPK using the Tizen CLI |
 | `cargo tizen install` | Build or reuse a TPK and install it on a connected device |

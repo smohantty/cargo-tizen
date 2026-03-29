@@ -18,6 +18,7 @@ The generated help includes short command descriptions, usage notes, and runnabl
 Quick start:
 
 ```sh
+cargo tizen init
 cargo tizen doctor
 cargo tizen fix
 ```
@@ -28,6 +29,7 @@ Command summary:
 
 | Command | Description |
 |---|---|
+| `init` | Create starter config and packaging files for the current project |
 | `setup` | Prepare and cache a Tizen sysroot for cross-compilation |
 | `build` | Cross-build the current Rust project for a Tizen target |
 | `rpm` | Package the project as an RPM using an existing spec file |
@@ -44,6 +46,32 @@ Packaging format:
 - `cargo-tizen` supports both **RPM** and **TPK** packaging.
 - If you are coming from `flutter-tizen`, note that it is primarily **TPK** oriented.
 - Device workflows use `sdb` similarly to `flutter-tizen` (`devices`, `install`).
+
+## `init`
+
+Create starter config and packaging files for the current project.
+
+```sh
+cargo tizen init [--rpm] [--tpk] [-p <package>] [--force]
+```
+
+Behavior:
+
+- With no format flags, creates `.cargo-tizen.toml` only.
+- Writes `.cargo-tizen.toml` whenever it is missing.
+- Creates `<packaging-dir>/rpm/<package-name>.spec` when `--rpm` is selected.
+- Creates `<packaging-dir>/tpk/tizen-manifest.xml` when `--tpk` is selected.
+- Existing packaging files are skipped by default; use `--force` to overwrite them.
+- In a workspace root, pass `-p/--package <member>` if the package cannot be inferred.
+
+Examples:
+
+```sh
+cargo tizen init
+cargo tizen init --rpm
+cargo tizen init --tpk -p my-app
+cargo tizen init --rpm --tpk --force
+```
 
 ## `setup`
 

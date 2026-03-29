@@ -1,6 +1,6 @@
 # Packaging Layout
 
-`cargo-tizen` now expects authored packaging files in a standard source layout. It does not generate missing spec or manifest files for you.
+`cargo-tizen` expects packaging files in a standard source layout. Use `cargo tizen init` to scaffold starter files, then edit them to match your app before packaging.
 
 ## Standard layout
 
@@ -38,6 +38,7 @@ packaging_dir = "./packaging"
 - `cargo tizen rpm` also checks for an optional `<packaging-dir>/rpm/sources/` directory. If present, all regular files inside are copied into `rpmbuild/SOURCES/` alongside the binary. Use this for systemd units, environment files, configs, or any other non-binary sources your spec references as `Source1:`, `Source2:`, etc. Dotfiles are skipped and symlinks are rejected.
 - `cargo tizen tpk` looks for `<packaging-dir>/tpk/tizen-manifest.xml`.
 - `cargo tizen install` is TPK-only. When `--tpk` is omitted, it uses the same TPK packaging layout as `cargo tizen tpk`.
+- `cargo tizen init` creates `.cargo-tizen.toml` by default. Add `--rpm` and/or `--tpk` when you want starter packaging files in the standard layout. Existing packaging files are skipped unless `--force` is passed.
 
 If the expected file is missing, the command fails and prints the exact path it expected plus the `--packaging-dir` escape hatch.
 

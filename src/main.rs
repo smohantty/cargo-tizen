@@ -38,8 +38,8 @@ fn parse_cli() -> Cli {
 
 fn main() -> Result<()> {
     let cli = parse_cli();
-    let config = config::Config::load(cli.config.as_deref())?;
-    let ctx = AppContext::new(config, cli.verbose, cli.quiet);
+    let config = config::Config::load()?;
+    let ctx = AppContext::new(config);
 
     match cli.command {
         Command::Setup(args) => sysroot::run_setup(&ctx, &args)?,

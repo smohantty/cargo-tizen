@@ -224,8 +224,6 @@ mod tests {
         config.default.package = Some("rsdbd".to_string());
         let ctx = AppContext {
             config,
-            verbose: false,
-            quiet: true,
             workspace_root: dir.path().to_path_buf(),
         };
 
@@ -247,8 +245,6 @@ mod tests {
         config.rpm.packages = Some(vec!["a".into(), "b".into()]);
         let ctx = AppContext {
             config,
-            verbose: false,
-            quiet: true,
             workspace_root: dir.path().to_path_buf(),
         };
 
@@ -271,8 +267,6 @@ mod tests {
         config.rpm.packages = Some(vec!["a".into(), "b".into()]);
         let ctx = AppContext {
             config,
-            verbose: false,
-            quiet: true,
             workspace_root: dir.path().to_path_buf(),
         };
 
@@ -297,8 +291,6 @@ mod tests {
         config.rpm.packages = Some(vec!["a".into(), "b".into()]);
         let ctx = AppContext {
             config,
-            verbose: false,
-            quiet: true,
             workspace_root: dir.path().to_path_buf(),
         };
 
@@ -320,8 +312,6 @@ mod tests {
         config.rpm.packages = Some(vec![]); // empty = treated as unset
         let ctx = AppContext {
             config,
-            verbose: false,
-            quiet: true,
             workspace_root: dir.path().to_path_buf(),
         };
 
@@ -344,8 +334,6 @@ mod tests {
         config.rpm.packages = Some(vec!["same".into(), "same".into()]);
         let ctx = AppContext {
             config,
-            verbose: false,
-            quiet: true,
             workspace_root: dir.path().to_path_buf(),
         };
 
@@ -364,8 +352,6 @@ mod tests {
 
         let ctx = AppContext {
             config: Config::default(),
-            verbose: false,
-            quiet: true,
             workspace_root: dir.path().to_path_buf(),
         };
 

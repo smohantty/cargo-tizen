@@ -74,7 +74,7 @@ pub struct TpkConfig {
 }
 
 impl Config {
-    pub fn load(explicit_path: Option<&Path>) -> Result<Self> {
+    pub fn load() -> Result<Self> {
         let mut cfg = Self::default();
 
         if let Some(user_path) = user_config_path() {
@@ -86,10 +86,6 @@ impl Config {
         let project_path = PathBuf::from(".cargo-tizen.toml");
         if project_path.exists() {
             cfg.merge(Self::read_file(&project_path)?);
-        }
-
-        if let Some(path) = explicit_path {
-            cfg.merge(Self::read_file(path)?);
         }
 
         Ok(cfg)

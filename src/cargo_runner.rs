@@ -56,12 +56,6 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     if args.release {
         cmd.arg("--release");
     }
-    if ctx.quiet {
-        cmd.arg("--quiet");
-    }
-    if ctx.verbose {
-        cmd.arg("--verbose");
-    }
     cmd.arg("--target-dir").arg(&target_dir);
     cmd.args(&args.cargo_args);
 

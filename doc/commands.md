@@ -24,10 +24,6 @@ cargo tizen fix
 
 Global options:
 
-- `-v, --verbose`: print detailed progress and diagnostics
-- `-q, --quiet`: reduce output to warnings and errors
-- `--config <path>`: merge an additional config file after the default user and project config
-
 Command summary:
 
 | Command | Description |
@@ -163,7 +159,7 @@ Notes:
 - `cargo tizen doctor -A <arch>` checks one architecture.
 - `doctor` reports the current packaging root plus missing/present RPM spec and TPK manifest files for the active project.
 - For rootstrap provider, doctor reports installed SDK coverage grouped by `--platform-version/--profile` with supported architecture summary.
-- Default doctor output is concise; use `cargo tizen -v doctor` for detailed per-check path output.
+- Default doctor output is concise and focuses on warnings and errors.
 - Missing `rpmbuild` is reported as a warning (it is required only for `cargo tizen rpm`).
 
 ## `fix`

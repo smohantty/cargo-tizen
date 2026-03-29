@@ -20,7 +20,6 @@ use crate::tool_env::{
 
 pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
     let use_color = color_enabled();
-    let verbose = ctx.verbose;
     let mut sections = Vec::new();
 
     // -- Host tools ----------------------------------------------------------
@@ -193,12 +192,7 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
 
     // -- Render output -------------------------------------------------------
 
-    let error_count = print_report(
-        &sections,
-        use_color,
-        verbose,
-        Some("Doctor summary (to see all details, run cargo tizen doctor -v):"),
-    );
+    let error_count = print_report(&sections, use_color, false, None);
 
     if error_count > 0 {
         let total = sections.len();

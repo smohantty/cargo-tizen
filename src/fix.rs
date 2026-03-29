@@ -18,7 +18,6 @@ pub fn run_fix(ctx: &AppContext, args: &FixArgs) -> Result<()> {
     }
 
     let use_color = color_enabled();
-    let verbose = ctx.verbose;
     let mut sections = Vec::new();
 
     // -- Prerequisites -------------------------------------------------------
@@ -109,12 +108,7 @@ pub fn run_fix(ctx: &AppContext, args: &FixArgs) -> Result<()> {
 
     // -- Render output -------------------------------------------------------
 
-    let error_count = print_report(
-        &sections,
-        use_color,
-        verbose,
-        Some("Fix summary (to see all details, run cargo tizen fix -v):"),
-    );
+    let error_count = print_report(&sections, use_color, false, None);
 
     if error_count > 0 {
         let total = sections.len();

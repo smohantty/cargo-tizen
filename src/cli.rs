@@ -82,11 +82,10 @@ const DOCTOR_AFTER_HELP: &str = "\
 Examples:
   cargo tizen doctor
   cargo tizen doctor -A armv7l
-  cargo tizen -v doctor
 
 Notes:
   doctor checks both supported architectures unless -A is passed.
-  Use -v for per-check path details and extra diagnostics.";
+  The report stays concise by default and focuses on warnings and errors.";
 
 const FIX_AFTER_HELP: &str = "\
 Examples:
@@ -130,30 +129,6 @@ Notes:
     version
 )]
 pub struct Cli {
-    #[arg(
-        short,
-        long,
-        global = true,
-        help = "Print detailed progress and diagnostic output"
-    )]
-    pub verbose: bool,
-
-    #[arg(
-        short,
-        long,
-        global = true,
-        help = "Reduce output to warnings and errors"
-    )]
-    pub quiet: bool,
-
-    #[arg(
-        long,
-        global = true,
-        value_name = "PATH",
-        help = "Load an additional config file after the default user and project config files"
-    )]
-    pub config: Option<PathBuf>,
-
     #[command(subcommand)]
     pub command: Command,
 }
@@ -505,11 +480,12 @@ mod tests {
         let mut command = Cli::command();
         let help = render_help(&mut command);
 
-        assert!(help.contains("Usage: cargo tizen [OPTIONS] <COMMAND>"));
+        assert!(help.contains("Usage: cargo tizen <COMMAND>"));
         assert!(help.contains("Prepare and cache a Tizen sysroot for cross-compilation"));
         assert!(help.contains("Build or reuse a TPK and install it on a connected device"));
         assert!(help.contains("Quick start:"));
         assert!(help.contains("cargo tizen doctor"));
+        assert!(!help.contains("--config"));
     }
 
     #[test]

@@ -83,9 +83,6 @@ cargo tizen <SUBCOMMAND> [OPTIONS]
 ```
 
 Global options:
-- `-v, --verbose`
-- `-q, --quiet`
-- `--config <PATH>` (explicit config file override)
 
 Help output requirements:
 - Top-level help should present the user-facing invocation as `cargo tizen ...`.

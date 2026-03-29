@@ -104,8 +104,9 @@ cargo tizen fix
 ```
 
 `cargo tizen fix` can install missing Rust targets and prepare missing sysroots. `cargo tizen doctor` also reports
-whether the current project has the expected RPM spec and TPK manifest layout. If `doctor` reports a missing SDK,
-missing linker, or other host-tool issue, fix that manually and rerun `cargo tizen doctor`.
+whether the current project has the expected RPM spec and TPK manifest layout. The report stays concise and highlights
+warnings and errors. If `doctor` reports a missing SDK, missing linker, or other host-tool issue, fix that manually and
+rerun `cargo tizen doctor`.
 
 ## Quick Start
 

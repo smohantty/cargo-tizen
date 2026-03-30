@@ -22,6 +22,7 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
         rust_target::resolve_with_sysroot_hint(ctx, arch, Some(&resolved.sysroot_dir))?;
     let toolchain = resolve_toolchain(ctx, arch);
     let target_dir = resolve_target_dir(&ctx.workspace_root, arch, args.target_dir.as_deref());
+    let build_profile = if args.release { "release" } else { "debug" };
 
     verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir))?;
 
@@ -61,19 +62,28 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
 
     ToolEnv::for_cargo_build(ctx, arch, &rust_target, &resolved.sysroot_dir).apply(&mut cmd);
 
-    ctx.info(format!(
-        "running cargo build for {} using sysroot {}",
-        rust_target,
-        resolved.sysroot_dir.display()
-    ));
+    for line in render_build_context(
+        arch,
+        &resolved.profile,
+        &resolved.platform_version,
+        resolved.provider,
+        build_profile,
+        &rust_target,
+        &toolchain.linker,
+        &resolved.sysroot_dir,
+        &target_dir,
+    ) {
+        ctx.info(line);
+    }
+
+    ctx.info(format!("running cargo build for {rust_target}"));
 
     let status = cmd.status().context("failed to run cargo build")?;
     if !status.success() {
         bail!("cargo build failed with status: {status}");
     }
 
-    let profile_dir = if args.release { "release" } else { "debug" };
-    let artifact_dir = target_dir.join(&rust_target).join(profile_dir);
+    let artifact_dir = target_dir.join(&rust_target).join(build_profile);
     ctx.info(format!("[ok] build artifacts: {}", artifact_dir.display()));
 
     if let Some(package_name) = package_name_from_manifest(&ctx.workspace_root.join("Cargo.toml")) {
@@ -84,6 +94,30 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn render_build_context(
+    arch: Arch,
+    profile: &str,
+    platform_version: &str,
+    provider: sysroot::provider::ProviderKind,
+    build_profile: &str,
+    rust_target: &str,
+    linker: &str,
+    sysroot_dir: &Path,
+    target_dir: &Path,
+) -> Vec<String> {
+    vec![
+        "build context:".to_string(),
+        format!(
+            "  tizen: profile={} platform-version={} arch={}",
+            profile, platform_version, arch
+        ),
+        format!("  rust-target: {}  build: {}", rust_target, build_profile),
+        format!("  provider: {}  linker: {}", provider, linker),
+        format!("  sysroot: {}", sysroot_dir.display()),
+        format!("  target-dir: {}", target_dir.display()),
+    ]
 }
 
 pub fn default_target_dir(workspace_root: &Path, arch: Arch) -> PathBuf {
@@ -118,5 +152,41 @@ fn package_name_from_manifest(path: &Path) -> Option<String> {
             eprintln!("warning: failed to parse {}: {e}", path.display());
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::render_build_context;
+    use crate::arch::Arch;
+    use crate::sysroot::provider::ProviderKind;
+
+    #[test]
+    fn build_context_lists_key_resolved_inputs() {
+        let lines = render_build_context(
+            Arch::Aarch64,
+            "mobile",
+            "10.0",
+            ProviderKind::Rootstrap,
+            "release",
+            "aarch64-unknown-linux-gnu",
+            "aarch64-linux-gnu-gcc",
+            Path::new("/sysroot"),
+            Path::new("/target/tizen/aarch64/cargo"),
+        );
+
+        let rendered = lines.join("\n");
+        assert!(rendered.contains("build context:"));
+        assert!(rendered.contains("profile=mobile"));
+        assert!(rendered.contains("platform-version=10.0"));
+        assert!(rendered.contains("arch=aarch64"));
+        assert!(rendered.contains("rust-target: aarch64-unknown-linux-gnu"));
+        assert!(rendered.contains("build: release"));
+        assert!(rendered.contains("provider: rootstrap"));
+        assert!(rendered.contains("linker: aarch64-linux-gnu-gcc"));
+        assert!(rendered.contains("sysroot: /sysroot"));
+        assert!(rendered.contains("target-dir: /target/tizen/aarch64/cargo"));
     }
 }

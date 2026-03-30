@@ -41,7 +41,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         }
         let build_args = BuildArgs {
             arch: Some(arch),
-            release: args.cargo_release,
+            release: args.release,
             target_dir: Some(build_target_dir.clone()),
             cargo_args,
         };
@@ -53,7 +53,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         arch,
         &rust_target,
         &build_target_dir,
-        args.cargo_release,
+        args.release,
         &packages,
     )?;
     ctx.debug(format!(
@@ -61,11 +61,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         stage_output.stage_root.display()
     ));
 
-    let profile_dir = if args.cargo_release {
-        "release"
-    } else {
-        "debug"
-    };
+    let profile_dir = if args.release { "release" } else { "debug" };
     let rpm_arch = ctx.config.rpm_build_arch_for(arch);
     let packaging_root = args
         .packaging_dir

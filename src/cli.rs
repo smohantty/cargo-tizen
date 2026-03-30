@@ -13,9 +13,9 @@ Quick start:
 
 Common workflows:
   cargo tizen build -A armv7l --release
-  cargo tizen rpm -A armv7l --cargo-release
-  cargo tizen tpk -A armv7l --cargo-release
-  cargo tizen install -A armv7l --cargo-release
+  cargo tizen rpm -A armv7l --release
+  cargo tizen tpk -A armv7l --release
+  cargo tizen install -A armv7l --release
 
 Tips:
   Most commands auto-select the target architecture when exactly one choice is available.
@@ -54,8 +54,8 @@ Notes:
 
 const RPM_AFTER_HELP: &str = "\
 Examples:
-  cargo tizen rpm -A armv7l --cargo-release
-  cargo tizen rpm -A aarch64 --cargo-release --packaging-dir ./packaging
+  cargo tizen rpm -A armv7l --release
+  cargo tizen rpm -A aarch64 --release --packaging-dir ./packaging
   cargo tizen rpm -p my-server --no-build
 
 Notes:
@@ -64,7 +64,7 @@ Notes:
 
 const TPK_AFTER_HELP: &str = "\
 Examples:
-  cargo tizen tpk -A armv7l --cargo-release
+  cargo tizen tpk -A armv7l --release
   cargo tizen tpk -A aarch64 --no-build --packaging-dir ./packaging
   cargo tizen tpk -A armv7l --sign my_profile
 
@@ -83,8 +83,8 @@ Notes:
 
 const INSTALL_AFTER_HELP: &str = "\
 Examples:
-  cargo tizen install -A armv7l --cargo-release
-  cargo tizen install -A aarch64 -d 192.168.0.101:26101 --cargo-release
+  cargo tizen install -A armv7l --release
+  cargo tizen install -A aarch64 -d 192.168.0.101:26101 --release
   cargo tizen install --tpk ./build/app.tpk -d <device-id>
 
 Notes:
@@ -320,7 +320,7 @@ pub struct RpmArgs {
     pub package: Option<String>,
 
     #[arg(long, help = "Build package inputs in release mode before packaging")]
-    pub cargo_release: bool,
+    pub release: bool,
 
     #[arg(
         long,
@@ -360,7 +360,7 @@ pub struct TpkArgs {
     pub package: Option<String>,
 
     #[arg(long, help = "Build package inputs in release mode before packaging")]
-    pub cargo_release: bool,
+    pub release: bool,
 
     #[arg(
         long,
@@ -418,7 +418,7 @@ pub struct InstallArgs {
     pub device: Option<String>,
 
     #[arg(long, help = "Build package inputs in release mode before packaging")]
-    pub cargo_release: bool,
+    pub release: bool,
 
     #[arg(
         long,

@@ -150,7 +150,7 @@ Behavior:
 ## 4.5 `rpm`
 
 ```bash
-cargo tizen rpm [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--no-build]
+cargo tizen rpm [-A <armv7l|aarch64>] [--release] [--packaging-dir <path>] [--output <dir>] [--no-build]
 ```
 
 Purpose:
@@ -181,7 +181,7 @@ Behavior:
 ## 4.7 `install`
 
 ```bash
-cargo tizen install [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>]
+cargo tizen install [-A <armv7l|aarch64>] [-d <device-id>] [--release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>]
 ```
 
 Purpose:
@@ -252,7 +252,7 @@ Behavior:
 ## 4.12 `tpk`
 
 ```bash
-cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build]
+cargo tizen tpk [-A <armv7l|aarch64>] [--release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build]
 ```
 
 Purpose:

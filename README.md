@@ -4,9 +4,9 @@ A Cargo subcommand for cross-building Rust projects for Tizen and packaging them
 
 ```
 cargo tizen build -A armv7l --release
-cargo tizen rpm -A armv7l --cargo-release
-cargo tizen tpk -A armv7l --cargo-release
-cargo tizen install -A armv7l --cargo-release
+cargo tizen rpm -A armv7l --release
+cargo tizen tpk -A armv7l --release
+cargo tizen install -A armv7l --release
 ```
 
 ## Install
@@ -134,7 +134,7 @@ cargo tizen build -A aarch64 --release
 ### Package as RPM
 
 ```bash
-cargo tizen rpm -A armv7l --cargo-release
+cargo tizen rpm -A armv7l --release
 ```
 
 For workspaces with multiple binary crates that should be packaged into a single RPM,
@@ -151,7 +151,7 @@ package name (`tizen/rpm/my-server.spec`). Single-crate projects need no config.
 ### Package as TPK
 
 ```bash
-cargo tizen tpk -A armv7l --cargo-release
+cargo tizen tpk -A armv7l --release
 ```
 
 This expects an authored manifest at `tizen/tpk/tizen-manifest.xml`.
@@ -163,7 +163,7 @@ This expects an authored manifest at `tizen/tpk/tizen-manifest.xml`.
 cargo tizen devices
 
 # Build, package, and install on device
-cargo tizen install -A armv7l --cargo-release
+cargo tizen install -A armv7l --release
 ```
 
 ## Packaging Layout

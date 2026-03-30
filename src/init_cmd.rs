@@ -61,10 +61,10 @@ pub fn run_init(ctx: &AppContext, args: &InitArgs) -> Result<()> {
         );
     }
     if targets.rpm {
-        ctx.info("  build an RPM with: cargo tizen rpm -A armv7l --cargo-release");
+        ctx.info("  build an RPM with: cargo tizen rpm -A armv7l --release");
     }
     if targets.tpk {
-        ctx.info("  build a TPK with: cargo tizen tpk -A armv7l --cargo-release");
+        ctx.info("  build a TPK with: cargo tizen tpk -A armv7l --release");
         ctx.info("  optionally set a signing profile with: cargo tizen config --sign <profile>");
     }
 

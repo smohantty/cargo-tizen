@@ -61,18 +61,14 @@ pub fn package_tpk_with_command(
         }
         let build_args = BuildArgs {
             arch: Some(arch),
-            release: args.cargo_release,
+            release: args.release,
             target_dir: Some(build_target_dir.clone()),
             cargo_args,
         };
         cargo_runner::run_build(ctx, &build_args)?;
     }
 
-    let profile_dir = if args.cargo_release {
-        "release"
-    } else {
-        "debug"
-    };
+    let profile_dir = if args.release { "release" } else { "debug" };
     let packaging_root = args
         .packaging_dir
         .clone()
@@ -177,11 +173,7 @@ pub fn package_tpk_with_command(
         )
     })?;
 
-    let build_config = if args.cargo_release {
-        "Release"
-    } else {
-        "Debug"
-    };
+    let build_config = if args.release { "Release" } else { "Debug" };
     let build_output_dir =
         build_temp_native_project(ctx, &tizen_cli, &temp_project_dir, arch, build_config)?;
 

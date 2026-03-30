@@ -27,7 +27,7 @@ pub fn run_install(ctx: &AppContext, args: &InstallArgs) -> Result<()> {
         let tpk_args = TpkArgs {
             arch: Some(selected_arch),
             package: args.package.clone(),
-            cargo_release: args.cargo_release,
+            release: args.release,
             no_build: args.no_build,
             packaging_dir: args.packaging_dir.clone(),
             output: args.output.clone(),

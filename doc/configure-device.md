@@ -45,18 +45,17 @@ Expected ready status is `device`.
 ## 4. Install app on device
 
 ```sh
-cargo tizen install -A armv7l --cargo-release
+cargo tizen install -A armv7l --release
 ```
 
 If multiple devices are connected:
 
 ```sh
-cargo tizen install -A armv7l -d <device-id> --cargo-release
+cargo tizen install -A armv7l -d <device-id> --release
 ```
 
 If your packaging files live outside the default `tizen/` layout:
 
 ```sh
-cargo tizen install -A armv7l --cargo-release --packaging-dir ./packaging
+cargo tizen install -A armv7l --release --packaging-dir ./packaging
 ```
-

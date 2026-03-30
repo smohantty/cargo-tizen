@@ -134,7 +134,7 @@ Rust target note:
 Generate RPM from built binary (or binaries).
 
 ```sh
-cargo tizen rpm [-A <armv7l|aarch64>] [-p <package>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--no-build]
+cargo tizen rpm [-A <armv7l|aarch64>] [-p <package>] [--release] [--packaging-dir <path>] [--output <dir>] [--no-build]
 ```
 
 Current behavior:
@@ -160,8 +160,8 @@ packages = ["my-server", "my-cli"]
 Examples:
 
 ```sh
-cargo tizen rpm -A armv7l --cargo-release
-cargo tizen rpm -A aarch64 --cargo-release --packaging-dir ./packaging
+cargo tizen rpm -A armv7l --release
+cargo tizen rpm -A aarch64 --release --packaging-dir ./packaging
 cargo tizen rpm -A armv7l --no-build
 cargo tizen rpm -p my-server   # single-package override
 ```
@@ -217,7 +217,7 @@ cargo tizen fix -A armv7l
 Package as TPK using Tizen CLI.
 
 ```sh
-cargo tizen tpk [-A <armv7l|aarch64>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build]
+cargo tizen tpk [-A <armv7l|aarch64>] [--release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build]
 ```
 
 Notes:
@@ -234,7 +234,7 @@ Notes:
 Examples:
 
 ```sh
-cargo tizen tpk -A armv7l --cargo-release
+cargo tizen tpk -A armv7l --release
 cargo tizen tpk -A aarch64 --no-build --packaging-dir ./packaging
 ```
 
@@ -263,7 +263,7 @@ cargo tizen devices --all
 Build, package, and install a TPK on a connected device.
 
 ```sh
-cargo tizen install [-A <armv7l|aarch64>] [-d <device-id>] [--cargo-release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>]
+cargo tizen install [-A <armv7l|aarch64>] [-d <device-id>] [--release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build] [--tpk <path>]
 ```
 
 Behavior:
@@ -277,8 +277,8 @@ Behavior:
 Examples:
 
 ```sh
-cargo tizen install -A armv7l --cargo-release
-cargo tizen install -A aarch64 -d 192.168.0.101:26101 --cargo-release --packaging-dir ./packaging
+cargo tizen install -A armv7l --release
+cargo tizen install -A aarch64 -d 192.168.0.101:26101 --release --packaging-dir ./packaging
 cargo tizen install -A armv7l --tpk ./build/app.tpk -d <device-id>
 ```
 

@@ -4,7 +4,7 @@ use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, RpmArgs};
 use crate::context::AppContext;
-use crate::package_select::{self, PackageSource};
+use crate::package_select;
 use crate::packaging::PackagingLayout;
 use crate::rust_target;
 
@@ -16,6 +16,16 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
     let rust_target = rust_target::resolve_for_arch(ctx, arch)?;
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
     let packages = package_select::resolve_rpm_packages(ctx, args.package.as_deref())?;
+    let packaging_root = args
+        .packaging_dir
+        .clone()
+        .or_else(|| ctx.config.packaging_dir());
+    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
+
+    // Validate authored packaging inputs before starting a potentially expensive build.
+    let spec_name = &packages[0].name;
+    let spec_path = packaging.resolve_rpm_spec(spec_name)?;
+    let extra_sources_dir = packaging.rpm_sources_dir()?;
 
     let is_multi = packages.len() > 1;
     if is_multi {
@@ -24,11 +34,6 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
             "multi-package RPM: staging {} binaries [{}]",
             packages.len(),
             names.join(", ")
-        ));
-    } else if packages[0].source == PackageSource::Config {
-        ctx.info(format!(
-            "using package {} from config for `cargo tizen rpm`",
-            packages[0].name
         ));
     }
 
@@ -63,22 +68,13 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
 
     let profile_dir = if args.release { "release" } else { "debug" };
     let rpm_arch = ctx.config.rpm_build_arch_for(arch);
-    let packaging_root = args
-        .packaging_dir
-        .clone()
-        .or_else(|| ctx.config.packaging_dir());
-    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
-
-    // Spec lookup uses the first package name
-    let spec_name = &packages[0].name;
-    let spec_path = packaging.resolve_rpm_spec(spec_name)?;
 
     let binary_names: Vec<&str> = stage_output
         .package_names
         .iter()
         .map(|s| s.as_str())
         .collect();
-    let extra_sources = match packaging.rpm_sources_dir()? {
+    let extra_sources = match extra_sources_dir {
         Some(dir) => {
             let sources = rpmbuild::collect_extra_sources(&dir, &binary_names)?;
             if !sources.is_empty() {

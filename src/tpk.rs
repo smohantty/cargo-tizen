@@ -9,7 +9,7 @@ use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, TpkArgs};
 use crate::context::AppContext;
-use crate::package_select::{self, PackageSource};
+use crate::package_select;
 use crate::packaging::PackagingLayout;
 use crate::rust_target;
 use crate::sdk::TizenSdk;
@@ -46,13 +46,14 @@ pub fn package_tpk_with_command(
     let build_target_dir = cargo_runner::resolve_target_dir(&ctx.workspace_root, arch, None);
     let selected_package =
         package_select::resolve_for_command(ctx, args.package.as_deref(), command_name)?;
-
-    if selected_package.source == PackageSource::Config {
-        ctx.info(format!(
-            "auto-selected package {} from [default].package for `cargo tizen {}`",
-            selected_package.name, command_name
-        ));
-    }
+    let packaging_root = args
+        .packaging_dir
+        .clone()
+        .or_else(|| ctx.config.packaging_dir());
+    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
+    let manifest_path = packaging.resolve_tpk_manifest()?;
+    let reference_dir = packaging.tpk_reference_dir()?;
+    let extra_dir = packaging.tpk_extra_dir()?;
 
     if !args.no_build {
         let mut cargo_args = Vec::new();
@@ -69,11 +70,6 @@ pub fn package_tpk_with_command(
     }
 
     let profile_dir = if args.release { "release" } else { "debug" };
-    let packaging_root = args
-        .packaging_dir
-        .clone()
-        .or_else(|| ctx.config.packaging_dir());
-    let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
     let package_name = selected_package.name;
     let source_binary = build_target_dir
         .join(&rust_target)
@@ -103,7 +99,7 @@ pub fn package_tpk_with_command(
         .with_context(|| format!("failed to create staging root {}", stage_root.display()))?;
 
     let staged_manifest = stage_root.join("tizen-manifest.xml");
-    stage_manifest(&packaging, &staged_manifest)?;
+    stage_manifest(&manifest_path, &staged_manifest)?;
 
     let output_dir = args.output.clone().unwrap_or_else(|| {
         ctx.workspace_root
@@ -190,8 +186,6 @@ pub fn package_tpk_with_command(
 
     let (resolved_sign, sign_source) =
         resolve_signing_profile(args.sign.as_deref(), ctx.config.tpk_sign());
-    let reference_dir = packaging.tpk_reference_dir()?;
-    let extra_dir = packaging.tpk_extra_dir()?;
 
     ctx.info(describe_signing_profile(resolved_sign, sign_source));
     ctx.info(format!(
@@ -327,16 +321,15 @@ fn shell_escape(value: &OsStr) -> String {
     }
 }
 
-fn stage_manifest(packaging: &PackagingLayout, staged_manifest: &Path) -> Result<PathBuf> {
-    let manifest_path = packaging.resolve_tpk_manifest()?;
-    fs::copy(&manifest_path, staged_manifest).with_context(|| {
+fn stage_manifest(manifest_path: &Path, staged_manifest: &Path) -> Result<PathBuf> {
+    fs::copy(manifest_path, staged_manifest).with_context(|| {
         format!(
             "failed to stage manifest {} -> {}",
             manifest_path.display(),
             staged_manifest.display()
         )
     })?;
-    Ok(manifest_path)
+    Ok(manifest_path.to_path_buf())
 }
 
 fn sanitize_identifier_segment(raw: &str) -> String {

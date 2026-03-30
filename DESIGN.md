@@ -154,9 +154,10 @@ cargo tizen rpm [-A <armv7l|aarch64>] [--release] [--packaging-dir <path>] [--ou
 ```
 
 Purpose:
-- Build (unless `--no-build`) then package into RPM.
+- Validate packaging inputs, build (unless `--no-build`), then package into RPM.
 
 Behavior:
+- Validates the authored RPM spec before the build starts.
 - Stage artifacts.
 - Load authored spec from `<packaging-dir>/rpm/<cargo-package-name>.spec`.
 - Fail with an explicit gap message if the spec is missing.
@@ -256,9 +257,10 @@ cargo tizen tpk [-A <armv7l|aarch64>] [--release] [--packaging-dir <path>] [--ou
 ```
 
 Purpose:
-- Build (unless `--no-build`) then package into TPK via Tizen CLI.
+- Validate packaging inputs, build (unless `--no-build`), then package into TPK via Tizen CLI.
 
 Behavior:
+- Validates the authored manifest and optional TPK directories before the build starts.
 - Stages binary and `tizen-manifest.xml`.
 - Loads authored manifest from `<packaging-dir>/tpk/tizen-manifest.xml`.
 - Uses optional `<packaging-dir>/tpk/reference` and `<packaging-dir>/tpk/extra` directories when present.
@@ -452,26 +454,27 @@ Given `cargo tizen rpm -A aarch64`:
    - CLI `-p <name>`: single package override.
    - `[rpm].packages` from `.cargo-tizen.toml`: multiple packages for multi-binary RPM.
    - `[default].package` or root `[package].name`: single-package fallback.
-2. Run build phase unless `--no-build`. For multiple packages, passes `-p <name>` per package.
-3. Stage binaries (atomic):
+2. Validate packaging inputs:
+   - `<packaging-dir>/rpm/<first-package-name>.spec` (multi-package uses first entry in `[rpm].packages`)
+   - fail if it does not exist
+   - if `<packaging-dir>/rpm/sources/` exists, require it to be a directory
+3. Run build phase unless `--no-build`. For multiple packages, passes `-p <name>` per package.
+4. Stage binaries (atomic):
    - Build staging tree in `target/tizen/<arch>/<debug|release>/stage.tmp/`.
    - Copy each package's binary to `stage.tmp/usr/bin/<package_name>`.
    - Verify staged binary count matches expected (catches `[[bin]]` collisions).
    - Atomically rename `stage.tmp/` to `stage/`.
-4. Resolve spec:
-   - `<packaging-dir>/rpm/<first-package-name>.spec` (multi-package uses first entry in `[rpm].packages`)
-   - fail if it does not exist
-4b. If `<packaging-dir>/rpm/sources/` exists, collect its regular files as extra sources.
+5. If `<packaging-dir>/rpm/sources/` exists, collect its regular files as extra sources.
    - Dotfiles are skipped; symlinks are rejected.
    - Name collisions with any staged binary are rejected.
    - Collected files are copied into `rpmbuild/SOURCES/` alongside the binaries.
-5. Prepare rpmbuild tree:
+6. Prepare rpmbuild tree:
    - `target/tizen/<arch>/<debug|release>/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}`
    - SOURCES is cleaned before populating to remove stale files from previous runs.
-6. Invoke:
+7. Invoke:
    - `rpmbuild -bb <spec> --target <rpm_arch> --define "_topdir <...>"`
    - with SDK-aware PATH augmentation
-7. Emit generated package path(s).
+8. Emit generated package path(s).
 
 Default `rpm_arch` mapping:
 - `armv7l` -> `armv7l` (config-overridable)
@@ -480,18 +483,22 @@ Default `rpm_arch` mapping:
 ## 8.1 TPK Packaging Pipeline
 
 Given `cargo tizen tpk -A aarch64`:
-1. Run build phase unless `--no-build`.
-2. Create staging root: `target/tizen/<arch>/<debug|release>/tpk/root/`.
-3. Stage application binary to `bin/<package_name>`.
-4. Stage `tizen-manifest.xml` from:
+1. Validate packaging inputs:
    - `<packaging-dir>/tpk/tizen-manifest.xml`
    - fail if it does not exist
-5. Invoke:
+   - if `<packaging-dir>/tpk/reference` or `<packaging-dir>/tpk/extra` exist, require them to be directories
+2. Run build phase unless `--no-build`.
+3. Create staging root: `target/tizen/<arch>/<debug|release>/tpk/root/`.
+4. Stage application binary to `bin/<package_name>`.
+5. Stage `tizen-manifest.xml` from:
+   - `<packaging-dir>/tpk/tizen-manifest.xml`
+   - fail if it does not exist
+6. Invoke:
    - `tizen package -t tpk -o <output_dir> -- <staging_root>`
    - optional `-s <sign_profile>`
    - optional `-r <packaging-dir>/tpk/reference`
    - optional `-e <packaging-dir>/tpk/extra`
-6. Emit generated `.tpk` artifact path(s).
+7. Emit generated `.tpk` artifact path(s).
 
 Notes:
 - TPK backend depends on Tizen CLI availability from detected SDK or PATH.

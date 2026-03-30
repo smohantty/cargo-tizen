@@ -9,6 +9,7 @@ use crate::arch::Arch;
 use crate::arch_detect;
 use crate::cli::BuildArgs;
 use crate::context::AppContext;
+use crate::output::{color_enabled, colorize};
 use crate::rust_target;
 use crate::sysroot;
 use crate::tool_env::{
@@ -23,6 +24,7 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     let toolchain = resolve_toolchain(ctx, arch);
     let target_dir = resolve_target_dir(&ctx.workspace_root, arch, args.target_dir.as_deref());
     let build_profile = if args.release { "release" } else { "debug" };
+    let use_color = color_enabled();
 
     verify_c_compiler_sanity(&toolchain.cc, Some(&resolved.sysroot_dir))?;
 
@@ -63,6 +65,7 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     ToolEnv::for_cargo_build(ctx, arch, &rust_target, &resolved.sysroot_dir).apply(&mut cmd);
 
     for line in render_build_context(
+        use_color,
         arch,
         &resolved.profile,
         &resolved.platform_version,
@@ -71,12 +74,9 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
         &rust_target,
         &toolchain.linker,
         &resolved.sysroot_dir,
-        &target_dir,
     ) {
         ctx.info(line);
     }
-
-    ctx.info(format!("running cargo build for {rust_target}"));
 
     let status = cmd.status().context("failed to run cargo build")?;
     if !status.success() {
@@ -84,12 +84,20 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
     }
 
     let artifact_dir = target_dir.join(&rust_target).join(build_profile);
-    ctx.info(format!("[ok] build artifacts: {}", artifact_dir.display()));
+    ctx.info(format!(
+        "{} {}",
+        cargo_status(use_color, "Artifacts"),
+        artifact_dir.display()
+    ));
 
     if let Some(package_name) = package_name_from_manifest(&ctx.workspace_root.join("Cargo.toml")) {
         let primary_binary = artifact_dir.join(&package_name);
         if primary_binary.is_file() {
-            ctx.info(format!("[ok] primary binary: {}", primary_binary.display()));
+            ctx.info(format!(
+                "{} {}",
+                cargo_status(use_color, "Binary"),
+                primary_binary.display()
+            ));
         }
     }
 
@@ -97,6 +105,7 @@ pub fn run_build(ctx: &AppContext, args: &BuildArgs) -> Result<()> {
 }
 
 fn render_build_context(
+    use_color: bool,
     arch: Arch,
     profile: &str,
     platform_version: &str,
@@ -105,19 +114,52 @@ fn render_build_context(
     rust_target: &str,
     linker: &str,
     sysroot_dir: &Path,
-    target_dir: &Path,
 ) -> Vec<String> {
+    let pad = " ".repeat(15);
+    let build_tag = build_profile_tag(use_color, build_profile);
     vec![
-        "build context:".to_string(),
         format!(
-            "  tizen: profile={} platform-version={} arch={}",
-            profile, platform_version, arch
+            "{} {} {}",
+            cargo_status(use_color, "Cross-compiling"),
+            rust_target,
+            build_tag
         ),
-        format!("  rust-target: {}  build: {}", rust_target, build_profile),
-        format!("  provider: {}  linker: {}", provider, linker),
-        format!("  sysroot: {}", sysroot_dir.display()),
-        format!("  target-dir: {}", target_dir.display()),
+        format!(
+            "{} {} {}, {} {}, {} {}, {} {}",
+            pad,
+            detail_label(use_color, "arch:"),
+            arch,
+            detail_label(use_color, "profile:"),
+            profile,
+            detail_label(use_color, "platform:"),
+            platform_version,
+            detail_label(use_color, "provider:"),
+            provider,
+        ),
+        format!("{} {} {}", pad, detail_label(use_color, "linker:"), linker),
+        format!(
+            "{} {} {}",
+            pad,
+            detail_label(use_color, "sysroot:"),
+            sysroot_dir.display()
+        ),
     ]
+}
+
+fn cargo_status(use_color: bool, status: &str) -> String {
+    colorize(use_color, "1;92", &format!("{status:>15}"))
+}
+
+fn build_profile_tag(use_color: bool, build_profile: &str) -> String {
+    let code = match build_profile {
+        "release" => "1;92", // bold bright green
+        _ => "1;93",         // bold bright yellow for debug
+    };
+    colorize(use_color, code, &format!("[{}]", build_profile))
+}
+
+fn detail_label(use_color: bool, label: &str) -> String {
+    colorize(use_color, "2", label)
 }
 
 pub fn default_target_dir(workspace_root: &Path, arch: Arch) -> PathBuf {
@@ -166,6 +208,7 @@ mod tests {
     #[test]
     fn build_context_lists_key_resolved_inputs() {
         let lines = render_build_context(
+            false,
             Arch::Aarch64,
             "mobile",
             "10.0",
@@ -174,19 +217,23 @@ mod tests {
             "aarch64-unknown-linux-gnu",
             "aarch64-linux-gnu-gcc",
             Path::new("/sysroot"),
-            Path::new("/target/tizen/aarch64/cargo"),
         );
 
         let rendered = lines.join("\n");
-        assert!(rendered.contains("build context:"));
-        assert!(rendered.contains("profile=mobile"));
-        assert!(rendered.contains("platform-version=10.0"));
-        assert!(rendered.contains("arch=aarch64"));
-        assert!(rendered.contains("rust-target: aarch64-unknown-linux-gnu"));
-        assert!(rendered.contains("build: release"));
-        assert!(rendered.contains("provider: rootstrap"));
-        assert!(rendered.contains("linker: aarch64-linux-gnu-gcc"));
-        assert!(rendered.contains("sysroot: /sysroot"));
-        assert!(rendered.contains("target-dir: /target/tizen/aarch64/cargo"));
+        assert!(rendered.contains("Cross-compiling"));
+        assert!(rendered.contains("aarch64-unknown-linux-gnu"));
+        assert!(rendered.contains("[release]"));
+        assert!(rendered.contains("arch:"));
+        assert!(rendered.contains("aarch64"));
+        assert!(rendered.contains("profile:"));
+        assert!(rendered.contains("mobile"));
+        assert!(rendered.contains("platform:"));
+        assert!(rendered.contains("10.0"));
+        assert!(rendered.contains("provider:"));
+        assert!(rendered.contains("rootstrap"));
+        assert!(rendered.contains("linker:"));
+        assert!(rendered.contains("aarch64-linux-gnu-gcc"));
+        assert!(rendered.contains("sysroot:"));
+        assert!(rendered.contains("/sysroot"));
     }
 }

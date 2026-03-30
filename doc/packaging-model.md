@@ -33,17 +33,18 @@ Notes:
 RPM flow:
 
 1. Resolve rootstrap and prepare sysroot cache.
-2. Cross-build Rust binary with Cargo.
-3. Stage files.
-4. Load an authored spec from the packaging layout.
+2. Validate the authored spec and optional `rpm/sources/` layout.
+3. Cross-build Rust binary with Cargo.
+4. Stage files.
 5. Build RPM via `rpmbuild`.
 
 TPK flow:
 
 1. Resolve rootstrap and prepare sysroot cache.
-2. Cross-build Rust binary with Cargo.
-3. Stage binary + authored `tizen-manifest.xml` from the packaging layout.
-4. Invoke `tizen package -t tpk`.
+2. Validate the authored manifest and optional TPK directories from the packaging layout.
+3. Cross-build Rust binary with Cargo.
+4. Stage binary + authored `tizen-manifest.xml` from the packaging layout.
+5. Invoke `tizen package -t tpk`.
 
 Current packaging layout:
 

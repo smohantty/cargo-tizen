@@ -5,6 +5,7 @@ use anyhow::{Result, bail};
 use crate::arch::Arch;
 use crate::context::AppContext;
 use crate::device::{self, TizenDevice};
+use crate::output::{color_enabled, colorize};
 
 pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str) -> Result<Arch> {
     if let Some(arch) = explicit {
@@ -12,27 +13,36 @@ pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str
     }
 
     if let Some(arch) = configured_default_arch(ctx)? {
-        ctx.info(format!(
-            "auto-selected arch {} from [default].arch for `cargo tizen {}`",
-            arch, command_name
-        ));
+        if should_announce_selection(command_name) {
+            ctx.info(format!(
+                "{} {} (from [default].arch)",
+                arch_status("Arch"),
+                arch
+            ));
+        }
         return Ok(arch);
     }
 
     if let Some(arch) = single_configured_arch(ctx) {
-        ctx.info(format!(
-            "auto-selected arch {} from configured [arch.*] entries for `cargo tizen {}`",
-            arch, command_name
-        ));
+        if should_announce_selection(command_name) {
+            ctx.info(format!(
+                "{} {} (from [arch.*] config)",
+                arch_status("Arch"),
+                arch
+            ));
+        }
         return Ok(arch);
     }
 
     match detect_arch_from_connected_devices(ctx) {
         DeviceArchSelection::Single(arch) => {
-            ctx.info(format!(
-                "auto-selected arch {} from connected Tizen device(s) for `cargo tizen {}`",
-                arch, command_name
-            ));
+            if should_announce_selection(command_name) {
+                ctx.info(format!(
+                    "{} {} (from connected device)",
+                    arch_status("Arch"),
+                    arch
+                ));
+            }
             return Ok(arch);
         }
         DeviceArchSelection::Ambiguous(arches) => {
@@ -58,6 +68,14 @@ or set [default].arch in .cargo-tizen.toml",
         command_name,
         supported_arch_list()
     )
+}
+
+fn should_announce_selection(_command_name: &str) -> bool {
+    false
+}
+
+fn arch_status(label: &str) -> String {
+    colorize(color_enabled(), "1;92", &format!("{label:>15}"))
 }
 
 fn configured_default_arch(ctx: &AppContext) -> Result<Option<Arch>> {

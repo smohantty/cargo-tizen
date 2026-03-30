@@ -146,7 +146,8 @@ packages = ["my-server", "my-cli"]
 ```
 
 This builds and stages all listed binaries. The spec file is looked up by the first
-package name (`tizen/rpm/my-server.spec`). Single-crate projects need no config.
+package name (`tizen/rpm/my-server.spec`), and packaging inputs are validated
+before the build starts. Single-crate projects need no config.
 
 ### Package as TPK
 
@@ -154,7 +155,8 @@ package name (`tizen/rpm/my-server.spec`). Single-crate projects need no config.
 cargo tizen tpk -A armv7l --release
 ```
 
-This expects an authored manifest at `tizen/tpk/tizen-manifest.xml`.
+This expects an authored manifest at `tizen/tpk/tizen-manifest.xml` and fails
+before the build starts if the manifest is missing.
 
 ### Install to device
 

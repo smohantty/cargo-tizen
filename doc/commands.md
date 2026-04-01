@@ -83,8 +83,8 @@ cargo tizen setup [-A <armv7l|aarch64>] [--profile <name>] [--platform-version <
 
 Notes:
 
-- `setup` is optional for normal build/package/run flows.
-- `build`/`rpm`/`tpk`/`run` automatically invoke setup if sysroot is not ready.
+- `setup` is optional for normal build/package/install flows.
+- `build`/`rpm`/`tpk`/`install` automatically invoke setup if sysroot is not ready.
 - Use `setup` when you want to pre-populate cache explicitly.
 - If `--profile` and/or `--platform-version` are omitted, installed SDK rootstraps are scanned and a matching installed target is auto-selected.
 - If requested profile/platform is not installed, available installed options are printed in the error output.
@@ -116,7 +116,7 @@ On success, `build` prints:
 - artifact directory path (`<target-dir>/<rust-target>/<debug|release>`)
 - primary binary path when package name can be determined
 
-Architecture auto-selection when `-A` is omitted (`setup`, `build`, `rpm`, `tpk`, `run`):
+Architecture auto-selection when `-A` is omitted (`setup`, `build`, `rpm`, `tpk`, `install`):
 1. `[default].arch`
 2. exactly one configured `[arch.*]` entry
 3. exactly one architecture from connected ready Tizen devices

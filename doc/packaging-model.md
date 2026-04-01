@@ -56,12 +56,13 @@ Current packaging layout:
 
 If the required packaging files are missing, `cargo-tizen` fails with a gap message instead of generating placeholder files.
 
-Run flow:
+Install flow:
 
 1. Discover devices via `sdb devices`.
 2. Filter ready Tizen devices via `sdb capability`.
 3. Install TPK with `sdb install`.
-4. Launch app via `app_launcher -e` (or secure protocol command).
+
+`cargo tizen install` installs the TPK on the device. Launching is a separate operation via `sdb` shell, device UI, or `app_launcher`.
 
 ## Similar techniques adopted from flutter-tizen
 

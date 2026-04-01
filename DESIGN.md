@@ -246,7 +246,7 @@ Purpose:
 - View or set persistent user-level configuration values stored in `~/.config/cargo-tizen/config.toml`.
 
 Behavior:
-- `--sign <profile>`: set the default TPK signing profile (used by `tpk` and `run` when `--sign` is not passed on the command line).
+- `--sign <profile>`: set the default TPK signing profile (used by `tpk` and `install` when `--sign` is not passed on the command line).
 - `--sign ""`: clear the stored signing profile.
 - `--show` or no flags: print current resolved configuration values.
 
@@ -268,7 +268,7 @@ Behavior:
 - Invokes `tizen package -t tpk`.
 - Emits generated `.tpk` path(s).
 
-## 4.12 Architecture Auto-Detection
+## 4.13 Architecture Auto-Detection
 
 When `-A/--arch` is omitted for `setup`, `build`, `rpm`, `tpk`, and `install`, architecture is resolved in this order:
 1. `[default].arch` in config.

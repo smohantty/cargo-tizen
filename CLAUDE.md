@@ -29,6 +29,7 @@ When changing SDK/rootstrap/device workflows, check upstream behavior first and 
 - `cargo tizen devices`
 - `cargo tizen install`
 - `cargo tizen doctor`
+- `cargo tizen fix`
 - `cargo tizen clean`
 - `cargo tizen config`
 

@@ -1,6 +1,6 @@
 # Configure Tizen Device Connectivity
 
-`cargo-tizen run` and `cargo-tizen devices` use `sdb` for device discovery, install, and launch.
+`cargo-tizen install` and `cargo-tizen devices` use `sdb` for device discovery and install.
 
 ## 1. Ensure `sdb` is available
 

@@ -9,15 +9,15 @@ cargo tizen tpk -A armv7l --release
 cargo tizen install -A armv7l --release
 ```
 
+**New to cargo-tizen?** Start with the [Getting Started guide](doc/getting-started.md).
+
 ## Install
 
-```bash
-cargo install --git https://github.com/<owner>/cargo-tizen
-```
-
-Or from a local clone:
+From a local clone:
 
 ```bash
+git clone <repo-url> cargo-tizen
+cd cargo-tizen
 cargo install --path .
 ```
 
@@ -313,9 +313,12 @@ Check `sdb devices` shows your target as `device`. For network devices: `sdb con
 
 ## Further Documentation
 
+- [Getting started](doc/getting-started.md)
+- [Quick reference](doc/quick-reference.md)
+- [Full command reference](doc/commands.md)
 - [Linux installation](doc/linux-install.md)
 - [Tizen SDK setup](doc/install-tizen-sdk.md)
 - [Device configuration](doc/configure-device.md)
-- [Full command reference](doc/commands.md)
 - [Packaging layout](doc/packaging-layout.md)
 - [Packaging model](doc/packaging-model.md)
+- [Changelog](CHANGELOG.md)

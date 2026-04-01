@@ -51,6 +51,8 @@ pub fn run_init(ctx: &AppContext, args: &InitArgs) -> Result<()> {
         ctx.info("rerun with --force to overwrite existing scaffold files");
     }
 
+    let arch_hint = ctx.config.default.arch.as_deref().unwrap_or("<arch>");
+
     ctx.info("");
     ctx.info("Next steps:");
     ctx.info("  edit the generated files to match your app metadata and install paths");
@@ -61,10 +63,14 @@ pub fn run_init(ctx: &AppContext, args: &InitArgs) -> Result<()> {
         );
     }
     if targets.rpm {
-        ctx.info("  build an RPM with: cargo tizen rpm -A armv7l --release");
+        ctx.info(format!(
+            "  build an RPM with: cargo tizen rpm -A {arch_hint} --release"
+        ));
     }
     if targets.tpk {
-        ctx.info("  build a TPK with: cargo tizen tpk -A armv7l --release");
+        ctx.info(format!(
+            "  build a TPK with: cargo tizen tpk -A {arch_hint} --release"
+        ));
         ctx.info("  optionally set a signing profile with: cargo tizen config --sign <profile>");
     }
 

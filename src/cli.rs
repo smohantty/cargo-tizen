@@ -149,66 +149,77 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     #[command(
+        display_order = 9,
         about = "Prepare and cache a Tizen sysroot for cross-compilation",
         after_help = SETUP_AFTER_HELP,
         after_long_help = SETUP_AFTER_HELP
     )]
     Setup(SetupArgs),
     #[command(
+        display_order = 1,
         about = "Create starter config and packaging files for the current project",
         after_help = INIT_AFTER_HELP,
         after_long_help = INIT_AFTER_HELP
     )]
     Init(InitArgs),
     #[command(
+        display_order = 4,
         about = "Cross-build the current Rust project for a Tizen target",
         after_help = BUILD_AFTER_HELP,
         after_long_help = BUILD_AFTER_HELP
     )]
     Build(BuildArgs),
     #[command(
+        display_order = 5,
         about = "Package the project as an RPM using an existing spec file",
         after_help = RPM_AFTER_HELP,
         after_long_help = RPM_AFTER_HELP
     )]
     Rpm(RpmArgs),
     #[command(
+        display_order = 6,
         about = "Package the project as a signed TPK using the Tizen CLI",
         after_help = TPK_AFTER_HELP,
         after_long_help = TPK_AFTER_HELP
     )]
     Tpk(TpkArgs),
     #[command(
+        display_order = 8,
         about = "List connected Tizen devices discovered via sdb",
         after_help = DEVICES_AFTER_HELP,
         after_long_help = DEVICES_AFTER_HELP
     )]
     Devices(DevicesArgs),
     #[command(
+        display_order = 7,
         about = "Build or reuse a TPK and install it on a connected device",
         after_help = INSTALL_AFTER_HELP,
         after_long_help = INSTALL_AFTER_HELP
     )]
     Install(InstallArgs),
     #[command(
+        display_order = 2,
         about = "Check SDK, toolchain, sysroot, and packaging readiness",
         after_help = DOCTOR_AFTER_HELP,
         after_long_help = DOCTOR_AFTER_HELP
     )]
     Doctor(DoctorArgs),
     #[command(
+        display_order = 3,
         about = "Install missing Rust targets and prepare missing sysroots",
         after_help = FIX_AFTER_HELP,
         after_long_help = FIX_AFTER_HELP
     )]
     Fix(FixArgs),
     #[command(
+        display_order = 10,
         about = "Remove build outputs and/or cached sysroots",
         after_help = CLEAN_AFTER_HELP,
         after_long_help = CLEAN_AFTER_HELP
     )]
     Clean(CleanArgs),
     #[command(
+        display_order = 11,
         about = "View or update persistent cargo-tizen settings",
         after_help = CONFIG_AFTER_HELP,
         after_long_help = CONFIG_AFTER_HELP
@@ -513,6 +524,11 @@ mod tests {
         String::from_utf8(output).unwrap()
     }
 
+    fn line_offset(help: &str, needle: &str) -> usize {
+        help.find(needle)
+            .unwrap_or_else(|| panic!("missing help line: {needle}"))
+    }
+
     #[test]
     fn root_help_uses_cargo_subcommand_name_and_describes_commands() {
         let mut command = Cli::command();
@@ -525,6 +541,43 @@ mod tests {
         assert!(help.contains("Quick start:"));
         assert!(help.contains("cargo tizen doctor"));
         assert!(!help.contains("--config"));
+    }
+
+    #[test]
+    fn root_help_lists_onboarding_and_common_commands_first() {
+        let mut command = Cli::command();
+        let help = render_help(&mut command);
+
+        let init = line_offset(
+            &help,
+            "  init     Create starter config and packaging files for the current project",
+        );
+        let doctor = line_offset(
+            &help,
+            "  doctor   Check SDK, toolchain, sysroot, and packaging readiness",
+        );
+        let fix = line_offset(
+            &help,
+            "  fix      Install missing Rust targets and prepare missing sysroots",
+        );
+        let build = line_offset(
+            &help,
+            "  build    Cross-build the current Rust project for a Tizen target",
+        );
+        let install = line_offset(
+            &help,
+            "  install  Build or reuse a TPK and install it on a connected device",
+        );
+        let setup = line_offset(
+            &help,
+            "  setup    Prepare and cache a Tizen sysroot for cross-compilation",
+        );
+
+        assert!(init < doctor);
+        assert!(doctor < fix);
+        assert!(fix < build);
+        assert!(build < install);
+        assert!(install < setup);
     }
 
     #[test]

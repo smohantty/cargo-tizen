@@ -30,14 +30,14 @@ Command summary:
 | Command | Description |
 |---|---|
 | `init` | Create starter config and packaging files for the current project |
-| `setup` | Prepare and cache a Tizen sysroot for cross-compilation |
+| `doctor` | Check SDK, toolchain, sysroot, and packaging readiness |
+| `fix` | Install missing Rust targets and prepare missing sysroots |
 | `build` | Cross-build the current Rust project for a Tizen target |
 | `rpm` | Package the project as an RPM using an existing spec file |
 | `tpk` | Package the project as a signed TPK using the Tizen CLI |
-| `devices` | List connected Tizen devices discovered via `sdb` |
 | `install` | Build or reuse a TPK and install it on a connected device |
-| `doctor` | Check SDK, toolchain, sysroot, and packaging readiness |
-| `fix` | Install missing Rust targets and prepare missing sysroots |
+| `devices` | List connected Tizen devices discovered via `sdb` |
+| `setup` | Prepare and cache a Tizen sysroot for cross-compilation |
 | `clean` | Remove build outputs and/or cached sysroots |
 | `config` | View or update persistent `cargo-tizen` settings |
 

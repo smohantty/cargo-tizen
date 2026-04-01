@@ -88,6 +88,7 @@ Global options:
 Help output requirements:
 - Top-level help should present the user-facing invocation as `cargo tizen ...`.
 - Top-level help should include subcommand descriptions plus quick-start guidance for `doctor`, `fix`, and the common build/package/install flows.
+- Top-level command ordering should put onboarding and common workflow commands ahead of optional setup and maintenance commands.
 - Each subcommand help page should include clear option descriptions and runnable examples.
 
 ## 4.2 `init`

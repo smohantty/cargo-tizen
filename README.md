@@ -282,15 +282,15 @@ For Samsung TVs, create a **Samsung** type profile in Certificate Manager with y
 
 | Command | Description |
 |---------|-------------|
-| `cargo tizen build` | Cross-build the current Rust project for a Tizen target |
 | `cargo tizen init` | Create starter config and packaging files for the current project |
+| `cargo tizen doctor` | Check SDK, toolchain, sysroot, and packaging readiness |
+| `cargo tizen fix` | Install missing Rust targets and prepare missing sysroots |
+| `cargo tizen build` | Cross-build the current Rust project for a Tizen target |
 | `cargo tizen rpm` | Package the project as an RPM using an existing spec file |
 | `cargo tizen tpk` | Package the project as a signed TPK using the Tizen CLI |
 | `cargo tizen install` | Build or reuse a TPK and install it on a connected device |
 | `cargo tizen devices` | List connected Tizen devices discovered via `sdb` |
 | `cargo tizen setup` | Prepare and cache a Tizen sysroot for cross-compilation |
-| `cargo tizen doctor` | Check SDK, toolchain, sysroot, and packaging readiness |
-| `cargo tizen fix` | Install missing Rust targets and prepare missing sysroots |
 | `cargo tizen clean` | Remove build outputs and/or cached sysroots |
 | `cargo tizen config` | View or update persistent `cargo-tizen` settings |
 

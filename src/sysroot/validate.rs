@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use anyhow::{Result, bail};
-use walkdir::WalkDir;
 
 pub fn validate(sysroot_dir: &Path) -> Result<()> {
     if !sysroot_dir.is_dir() {
@@ -72,15 +71,37 @@ fn contains_file_name<F>(root: &Path, predicate: F) -> bool
 where
     F: Fn(&str) -> bool,
 {
-    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_file() {
+    contains_file_name_impl(root, &predicate)
+}
+
+fn contains_file_name_impl<F>(root: &Path, predicate: &F) -> bool
+where
+    F: Fn(&str) -> bool + ?Sized,
+{
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(_) => return false,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+
+        if file_type.is_file() {
+            if let Some(name) = path.file_name().and_then(|v| v.to_str()) {
+                if predicate(name) {
+                    return true;
+                }
+            }
             continue;
         }
-        if let Some(name) = entry.path().file_name().and_then(|v| v.to_str()) {
-            if predicate(name) {
-                return true;
-            }
+
+        if file_type.is_dir() && contains_file_name_impl(&path, predicate) {
+            return true;
         }
     }
+
     false
 }

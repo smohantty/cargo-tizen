@@ -5,7 +5,6 @@ use anyhow::{Result, bail};
 use crate::arch::Arch;
 use crate::context::AppContext;
 use crate::device::{self, TizenDevice};
-use crate::output::{color_enabled, colorize};
 
 pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str) -> Result<Arch> {
     if let Some(arch) = explicit {
@@ -13,36 +12,15 @@ pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str
     }
 
     if let Some(arch) = configured_default_arch(ctx)? {
-        if should_announce_selection(command_name) {
-            ctx.info(format!(
-                "{} {} (from [default].arch)",
-                arch_status("Arch"),
-                arch
-            ));
-        }
         return Ok(arch);
     }
 
     if let Some(arch) = single_configured_arch(ctx) {
-        if should_announce_selection(command_name) {
-            ctx.info(format!(
-                "{} {} (from [arch.*] config)",
-                arch_status("Arch"),
-                arch
-            ));
-        }
         return Ok(arch);
     }
 
     match detect_arch_from_connected_devices(ctx) {
         DeviceArchSelection::Single(arch) => {
-            if should_announce_selection(command_name) {
-                ctx.info(format!(
-                    "{} {} (from connected device)",
-                    arch_status("Arch"),
-                    arch
-                ));
-            }
             return Ok(arch);
         }
         DeviceArchSelection::Ambiguous(arches) => {
@@ -51,17 +29,7 @@ pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str
                 .map(|arch| arch.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            let examples = arches
-                .iter()
-                .map(|arch| {
-                    format!(
-                        "  cargo tizen {command_name} -A {:<10} ({})",
-                        arch.as_str(),
-                        arch.rust_target()
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
+            let examples = format_arch_examples(command_name, &arches);
             bail!(
                 "multiple device architectures detected ({values})\n\n\
                  pick one:\n{examples}"
@@ -71,17 +39,7 @@ pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str
     }
 
     let project_config_exists = ctx.workspace_root.join(".cargo-tizen.toml").is_file();
-    let arch_lines = Arch::all()
-        .iter()
-        .map(|arch| {
-            format!(
-                "  cargo tizen {command_name} -A {:<10} ({})",
-                arch.as_str(),
-                arch.rust_target()
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let arch_lines = format_arch_examples(command_name, Arch::all());
 
     if !project_config_exists {
         bail!(
@@ -103,12 +61,18 @@ pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str
     )
 }
 
-fn should_announce_selection(_command_name: &str) -> bool {
-    false
-}
-
-fn arch_status(label: &str) -> String {
-    colorize(color_enabled(), "1;92", &format!("{label:>15}"))
+fn format_arch_examples(command_name: &str, arches: &[Arch]) -> String {
+    arches
+        .iter()
+        .map(|arch| {
+            format!(
+                "  cargo tizen {command_name} -A {:<10} ({})",
+                arch.as_str(),
+                arch.rust_target()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn configured_default_arch(ctx: &AppContext) -> Result<Option<Arch>> {

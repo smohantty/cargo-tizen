@@ -29,6 +29,15 @@ enum SigningProfileSource {
     Config,
 }
 
+impl std::fmt::Display for SigningProfileSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cli => f.write_str("--sign"),
+            Self::Config => f.write_str("config"),
+        }
+    }
+}
+
 pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
     let output = package_tpk_with_command(ctx, args, "tpk")?;
     let use_color = color_enabled();
@@ -89,14 +98,15 @@ pub fn package_tpk_with_command(
         );
     }
 
-    let stage_root = ctx
+    let tpk_base = ctx
         .workspace_root
         .join("target")
         .join("tizen")
         .join(arch.as_str())
         .join(profile_dir)
-        .join("tpk")
-        .join("root");
+        .join("tpk");
+
+    let stage_root = tpk_base.join("root");
     if stage_root.exists() {
         fs::remove_dir_all(&stage_root)
             .with_context(|| format!("failed to clean staging root {}", stage_root.display()))?;
@@ -107,15 +117,7 @@ pub fn package_tpk_with_command(
     let staged_manifest = stage_root.join("tizen-manifest.xml");
     stage_manifest(&manifest_path, &staged_manifest)?;
 
-    let output_dir = args.output.clone().unwrap_or_else(|| {
-        ctx.workspace_root
-            .join("target")
-            .join("tizen")
-            .join(arch.as_str())
-            .join(profile_dir)
-            .join("tpk")
-            .join("out")
-    });
+    let output_dir = args.output.clone().unwrap_or_else(|| tpk_base.join("out"));
     fs::create_dir_all(&output_dir)
         .with_context(|| format!("failed to create TPK output dir {}", output_dir.display()))?;
 
@@ -135,14 +137,7 @@ pub fn package_tpk_with_command(
     };
 
     let template_profile = tizen_template_profile_name(&platform_version);
-    let temp_project_root = ctx
-        .workspace_root
-        .join("target")
-        .join("tizen")
-        .join(arch.as_str())
-        .join(profile_dir)
-        .join("tpk")
-        .join("project");
+    let temp_project_root = tpk_base.join("project");
     if temp_project_root.exists() {
         fs::remove_dir_all(&temp_project_root).with_context(|| {
             format!(
@@ -253,12 +248,7 @@ fn resolve_signing_profile<'a>(
 
 fn describe_signing_profile(sign: Option<&str>, source: Option<SigningProfileSource>) -> String {
     match (sign, source) {
-        (Some(sign), Some(SigningProfileSource::Cli)) => {
-            format!("using signing profile `{sign}` from --sign")
-        }
-        (Some(sign), Some(SigningProfileSource::Config)) => {
-            format!("using signing profile `{sign}` from config")
-        }
+        (Some(sign), Some(src)) => format!("using signing profile `{sign}` from {src}"),
         (Some(sign), None) => format!("using signing profile `{sign}`"),
         (None, _) => {
             "no signing profile configured; relying on Tizen CLI default profile selection"

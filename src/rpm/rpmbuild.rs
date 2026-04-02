@@ -120,7 +120,7 @@ pub fn build_rpm(
     }
 
     for source in extra_sources {
-        let dest = topdir.join("SOURCES").join(
+        let dest = sources_dir.join(
             source
                 .file_name()
                 .ok_or_else(|| anyhow::anyhow!("invalid source path: {}", source.display()))?,

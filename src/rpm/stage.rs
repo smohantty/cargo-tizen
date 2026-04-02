@@ -36,20 +36,16 @@ pub fn stage_binaries_from_target_dir(
         }
     }
 
-    let stage_root = workspace_root
+    let base = workspace_root
         .join("target")
         .join("tizen")
         .join(arch.as_str())
-        .join(profile_dir)
-        .join("stage");
+        .join(profile_dir);
+
+    let stage_root = base.join("stage");
 
     // Atomic staging: build in a temp dir, then rename into place
-    let stage_tmp = workspace_root
-        .join("target")
-        .join("tizen")
-        .join(arch.as_str())
-        .join(profile_dir)
-        .join("stage.tmp");
+    let stage_tmp = base.join("stage.tmp");
 
     // Clean temp staging dir
     if stage_tmp.exists() {
@@ -121,12 +117,7 @@ pub fn stage_binaries_from_target_dir(
 
     // Crash-safe swap: rename old aside, rename new in, then remove old.
     // If interrupted between step 1 and 2, stage.old still has the prior state.
-    let stage_old = workspace_root
-        .join("target")
-        .join("tizen")
-        .join(arch.as_str())
-        .join(profile_dir)
-        .join("stage.old");
+    let stage_old = base.join("stage.old");
 
     if stage_old.exists() {
         fs::remove_dir_all(&stage_old).ok();

@@ -137,19 +137,19 @@ pub fn select_installed_profile_platform(
     }
 
     if filtered.is_empty() && (requested_profile.is_some() || requested_platform.is_some()) {
-        let mut reason = String::from("requested rootstrap target is not installed");
+        let mut parts = vec!["requested rootstrap target is not installed".to_string()];
         if let Some(profile) = requested_profile {
-            reason.push_str(&format!(", profile={profile}"));
+            parts.push(format!("profile={profile}"));
         }
         if let Some(platform_version) = requested_platform {
-            reason.push_str(&format!(", platform-version={platform_version}"));
+            parts.push(format!("platform-version={platform_version}"));
         }
-        reason.push_str(&format!(", arch={arch}.\n"));
-        reason.push_str(&format!(
-            "installed options in SDK:\n{}",
+        parts.push(format!("arch={arch}"));
+        bail!(
+            "{}.\ninstalled options in SDK:\n{}",
+            parts.join(", "),
             format_installed_options(&options)
-        ));
-        bail!("{reason}");
+        );
     }
 
     Ok(select_best_option(&filtered))

@@ -19,9 +19,10 @@ pub fn run_init(ctx: &AppContext, args: &InitArgs) -> Result<()> {
     let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
 
     let mut outcomes = Vec::new();
-    outcomes.push(write_config_file(
+    outcomes.push(write_scaffold_file(
         &ctx.workspace_root.join(".cargo-tizen.toml"),
         &render_project_config(&package.name, package.pin_default_package),
+        false,
     )?);
 
     if targets.rpm {
@@ -388,34 +389,6 @@ fn write_scaffold_file(path: &Path, content: &str, force: bool) -> Result<Scaffo
     })
 }
 
-fn write_config_file(path: &Path, content: &str) -> Result<ScaffoldOutcome> {
-    if path.exists() && !path.is_file() {
-        bail!(
-            "scaffold target exists but is not a file: {}",
-            path.display()
-        );
-    }
-
-    if path.exists() {
-        return Ok(ScaffoldOutcome {
-            path: path.to_path_buf(),
-            status: ScaffoldStatus::Skipped,
-        });
-    }
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create directory {}", parent.display()))?;
-    }
-
-    fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))?;
-
-    Ok(ScaffoldOutcome {
-        path: path.to_path_buf(),
-        status: ScaffoldStatus::Created,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -424,7 +397,7 @@ mod tests {
 
     use super::{
         ScaffoldPackage, ScaffoldStatus, render_project_config, render_rpm_spec,
-        render_tpk_manifest, selected_targets, write_config_file, write_scaffold_file,
+        render_tpk_manifest, selected_targets, write_scaffold_file,
     };
     use crate::cli::InitArgs;
 
@@ -514,12 +487,12 @@ mod tests {
     }
 
     #[test]
-    fn write_config_file_never_overwrites_existing_file() {
+    fn write_scaffold_file_without_force_never_overwrites_existing_file() {
         let dir = tempdir().unwrap();
         let path = dir.path().join(".cargo-tizen.toml");
         fs::write(&path, "before").unwrap();
 
-        let outcome = write_config_file(&path, "after").unwrap();
+        let outcome = write_scaffold_file(&path, "after", false).unwrap();
         assert_eq!(outcome.status, ScaffoldStatus::Skipped);
         assert_eq!(fs::read_to_string(&path).unwrap(), "before");
     }

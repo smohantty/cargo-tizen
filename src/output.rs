@@ -156,15 +156,16 @@ pub fn print_report(
     let rendered = render_sections(sections, use_color, verbose);
     print!("{rendered}");
 
-    let error_count = sections
-        .iter()
-        .filter(|s| s.severity() == Severity::Error)
-        .count();
-    let warn_count = sections
-        .iter()
-        .filter(|s| s.severity() == Severity::Warn)
-        .count();
     let total = sections.len();
+    let mut error_count = 0;
+    let mut warn_count = 0;
+    for s in sections {
+        match s.severity() {
+            Severity::Error => error_count += 1,
+            Severity::Warn => warn_count += 1,
+            Severity::Ok => {}
+        }
+    }
 
     if error_count > 0 {
         println!(

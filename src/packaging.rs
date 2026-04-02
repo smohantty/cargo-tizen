@@ -36,17 +36,10 @@ impl PackagingLayout {
             return Ok(path);
         }
 
-        let status = if self.root.exists() {
-            format!("packaging root exists: {}", self.root.display())
-        } else {
-            format!("packaging root is missing: {}", self.root.display())
-        };
         bail!(
-            "missing RPM spec for package `{package_name}`\n\
-             expected: {}\n\
-             {status}\n\n\
-             quick fix: cargo tizen init --rpm\n\
-             custom packaging root: cargo tizen rpm --packaging-dir <dir>",
+            "RPM spec not found for package `{package_name}`\n\n\
+             run: cargo tizen init --rpm\n\n\
+             expected at: {}",
             path.display()
         )
     }
@@ -69,31 +62,32 @@ impl PackagingLayout {
             return Ok(path);
         }
 
+        // Check for legacy manifest locations before giving generic advice
         let legacy_root_manifest = self.workspace_root.join("tizen-manifest.xml");
         let legacy_tizen_manifest = self.workspace_root.join("tizen").join("tizen-manifest.xml");
-        let migration_hint = if legacy_root_manifest.is_file() {
-            format!(
-                "legacy manifest detected at {}. move it to {}",
+        if legacy_root_manifest.is_file() {
+            bail!(
+                "TPK manifest not found\n\n\
+                 legacy manifest detected at {}\n\
+                 move it to: {}",
                 legacy_root_manifest.display(),
                 path.display()
             )
-        } else if legacy_tizen_manifest.is_file() && legacy_tizen_manifest != path {
-            format!(
-                "legacy manifest detected at {}. move it to {}",
+        }
+        if legacy_tizen_manifest.is_file() && legacy_tizen_manifest != path {
+            bail!(
+                "TPK manifest not found\n\n\
+                 legacy manifest detected at {}\n\
+                 move it to: {}",
                 legacy_tizen_manifest.display(),
                 path.display()
             )
-        } else if self.root.exists() {
-            format!("packaging root exists: {}", self.root.display())
-        } else {
-            format!("packaging root is missing: {}", self.root.display())
-        };
+        }
+
         bail!(
-            "missing TPK manifest\n\
-             expected: {}\n\
-             {migration_hint}\n\n\
-             quick fix: cargo tizen init --tpk\n\
-             custom packaging root: cargo tizen tpk --packaging-dir <dir>",
+            "TPK manifest not found\n\n\
+             run: cargo tizen init --tpk\n\n\
+             expected at: {}",
             path.display()
         )
     }
@@ -220,7 +214,7 @@ mod tests {
             .resolve_rpm_spec("missing-app")
             .expect_err("missing spec should error")
             .to_string();
-        assert!(err.contains("missing RPM spec"));
+        assert!(err.contains("RPM spec not found"));
         assert!(err.contains("cargo tizen init --rpm"));
     }
 
@@ -231,7 +225,7 @@ mod tests {
             .resolve_tpk_manifest()
             .expect_err("missing manifest should error")
             .to_string();
-        assert!(err.contains("missing TPK manifest"));
+        assert!(err.contains("TPK manifest not found"));
         assert!(err.contains("cargo tizen init --tpk"));
     }
 }

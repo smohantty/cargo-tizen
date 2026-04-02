@@ -42,6 +42,17 @@ impl Section {
         });
     }
 
+    pub fn warn_multiline(&mut self, full: &str) {
+        let mut lines = full.lines();
+        let first = lines.next().unwrap_or(full).to_string();
+        let detail: Vec<String> = lines.map(String::from).collect();
+        self.items.push(CheckItem {
+            severity: Severity::Warn,
+            message: first,
+            detail,
+        });
+    }
+
     pub fn error(&mut self, message: impl Into<String>) {
         self.items.push(CheckItem {
             severity: Severity::Error,

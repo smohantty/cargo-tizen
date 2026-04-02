@@ -306,14 +306,20 @@ fn build_packaging_section(ctx: &AppContext) -> Section {
     if rpm_spec.is_file() {
         sec.ok(format!("rpm spec: {}", rpm_spec.display()));
     } else {
-        sec.warn(format!("rpm spec missing: {}", rpm_spec.display()));
+        sec.warn_multiline(&format!(
+            "rpm spec missing: {}\ngenerate with: cargo tizen init --rpm",
+            rpm_spec.display()
+        ));
     }
 
     let tpk_manifest = packaging.tpk_manifest_path();
     if tpk_manifest.is_file() {
         sec.ok(format!("tpk manifest: {}", tpk_manifest.display()));
     } else {
-        sec.warn(format!("tpk manifest missing: {}", tpk_manifest.display()));
+        sec.warn_multiline(&format!(
+            "tpk manifest missing: {}\ngenerate with: cargo tizen init --tpk",
+            tpk_manifest.display()
+        ));
     }
 
     sec

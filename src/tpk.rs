@@ -9,6 +9,7 @@ use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, TpkArgs};
 use crate::context::AppContext;
+use crate::output::{cargo_status, color_enabled};
 use crate::package_select;
 use crate::packaging::PackagingLayout;
 use crate::rust_target;
@@ -30,8 +31,13 @@ enum SigningProfileSource {
 
 pub fn run_tpk(ctx: &AppContext, args: &TpkArgs) -> Result<()> {
     let output = package_tpk_with_command(ctx, args, "tpk")?;
+    let use_color = color_enabled();
     for tpk in output.tpk_files {
-        ctx.info(format!("generated TPK: {}", tpk.display()));
+        ctx.info(format!(
+            "{} {}",
+            cargo_status(use_color, "Generated TPK"),
+            tpk.display()
+        ));
     }
     Ok(())
 }
@@ -187,14 +193,15 @@ pub fn package_tpk_with_command(
     let (resolved_sign, sign_source) =
         resolve_signing_profile(args.sign.as_deref(), ctx.config.tpk_sign());
 
-    ctx.info(describe_signing_profile(resolved_sign, sign_source));
+    let use_color = color_enabled();
     ctx.info(format!(
-        "running tizen package -t tpk for {} profile={} platform-version={} (output: {})",
+        "{} TPK for {} profile={} platform-version={}",
+        cargo_status(use_color, "Packaging"),
         arch,
         resolved_profile,
         platform_version,
-        output_dir.display()
     ));
+    ctx.info(describe_signing_profile(resolved_sign, sign_source));
     ctx.info(format!(
         "packaging command: {}",
         render_tizen_package_command(
@@ -375,14 +382,23 @@ fn create_temp_native_project(
         .arg("-n")
         .arg(project_name)
         .arg("--")
-        .arg(project_root);
+        .arg(project_root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     tool_env::tizen_cli_env(ctx).apply(&mut cmd);
 
-    let status = cmd
-        .status()
+    let output = cmd
+        .output()
         .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
-    if !status.success() {
-        bail!("tizen create native-project failed with status: {status}");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        bail!(
+            "tizen create native-project failed with status: {}\n\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            stdout.trim(),
+            stderr.trim()
+        );
     }
 
     let project_dir = project_root.join(project_name);
@@ -409,14 +425,23 @@ fn build_temp_native_project(
         .arg("-C")
         .arg(build_config)
         .arg("--")
-        .arg(project_dir);
+        .arg(project_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     tool_env::tizen_cli_env(ctx).apply(&mut cmd);
 
-    let status = cmd
-        .status()
+    let output = cmd
+        .output()
         .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
-    if !status.success() {
-        bail!("tizen build-native failed with status: {status}");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        bail!(
+            "tizen build-native failed with status: {}\n\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            stdout.trim(),
+            stderr.trim()
+        );
     }
 
     let output_dir = project_dir.join(build_config);
@@ -449,15 +474,38 @@ fn run_tizen_package(
     if let Some(extra_dir) = extra_dir {
         cmd.arg("-e").arg(extra_dir);
     }
-    cmd.arg("-o").arg(output_dir);
-    cmd.arg("--").arg(build_output_dir);
+    cmd.arg("-o")
+        .arg(output_dir)
+        .arg("--")
+        .arg(build_output_dir);
     tool_env::tizen_cli_env(ctx).apply(&mut cmd);
 
-    let status = cmd
-        .status()
-        .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
-    if !status.success() {
-        bail!("tizen package command failed with status: {status}");
+    if sign.is_some() {
+        // Signing may prompt for certificate passwords — keep all streams
+        // inherited so the user can see and respond to interactive prompts.
+        let status = cmd
+            .status()
+            .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
+        if !status.success() {
+            bail!("tizen package command failed with status: {status}");
+        }
+    } else {
+        // No signing — safe to capture output and suppress noise on success.
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        let output = cmd
+            .output()
+            .with_context(|| format!("failed to execute {}", tizen_cli.display()))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            bail!(
+                "tizen package command failed with status: {}\n\nstdout:\n{}\nstderr:\n{}",
+                output.status,
+                stdout.trim(),
+                stderr.trim()
+            );
+        }
     }
 
     Ok(())

@@ -133,6 +133,12 @@ pub fn colorize(enabled: bool, ansi_code: &str, value: &str) -> String {
     }
 }
 
+/// Render a right-aligned 15-character status label in bold bright green,
+/// matching the Cargo output convention used by `Compiling`, `Finished`, etc.
+pub fn cargo_status(use_color: bool, status: &str) -> String {
+    colorize(use_color, "1;92", &format!("{status:>15}"))
+}
+
 /// Print sections and a summary line. Returns the count of sections with errors.
 pub fn print_report(
     sections: &[Section],

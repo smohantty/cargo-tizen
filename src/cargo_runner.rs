@@ -9,7 +9,7 @@ use crate::arch::Arch;
 use crate::arch_detect;
 use crate::cli::BuildArgs;
 use crate::context::AppContext;
-use crate::output::{color_enabled, colorize};
+use crate::output::{cargo_status, color_enabled, colorize};
 use crate::rust_target;
 use crate::sysroot;
 use crate::tool_env::{
@@ -144,10 +144,6 @@ fn render_build_context(
             sysroot_dir.display()
         ),
     ]
-}
-
-fn cargo_status(use_color: bool, status: &str) -> String {
-    colorize(use_color, "1;92", &format!("{status:>15}"))
 }
 
 fn build_profile_tag(use_color: bool, build_profile: &str) -> String {

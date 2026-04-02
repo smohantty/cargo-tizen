@@ -4,6 +4,7 @@ use crate::arch_detect;
 use crate::cargo_runner;
 use crate::cli::{BuildArgs, RpmArgs};
 use crate::context::AppContext;
+use crate::output::{cargo_status, color_enabled};
 use crate::package_select;
 use crate::packaging::PackagingLayout;
 use crate::rust_target;
@@ -105,8 +106,13 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
         bail!("rpmbuild reported success but no RPM files were found");
     }
 
+    let use_color = color_enabled();
     for rpm in rpms {
-        ctx.info(format!("generated RPM: {}", rpm.display()));
+        ctx.info(format!(
+            "{} {}",
+            cargo_status(use_color, "Generated RPM"),
+            rpm.display()
+        ));
     }
     Ok(())
 }

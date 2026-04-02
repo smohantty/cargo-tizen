@@ -7,6 +7,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::arch::Arch;
 use crate::context::AppContext;
+use crate::output::{cargo_status, color_enabled};
 use crate::tool_env;
 
 pub fn collect_extra_sources(sources_dir: &Path, binary_names: &[&str]) -> Result<Vec<PathBuf>> {
@@ -211,9 +212,31 @@ pub fn build_rpm(
 
     tool_env::rpmbuild_env(ctx).apply(&mut command);
 
-    let status = command.status().context("failed to execute rpmbuild")?;
-    if !status.success() {
-        bail!("rpmbuild failed with status: {status}");
+    let use_color = color_enabled();
+    ctx.info(format!(
+        "{} RPM {}",
+        cargo_status(use_color, "Packaging"),
+        spec_path
+            .file_name()
+            .unwrap_or(spec_path.as_os_str())
+            .to_string_lossy()
+    ));
+
+    let output = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .context("failed to execute rpmbuild")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        bail!(
+            "rpmbuild failed with status: {}\n\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            stdout.trim(),
+            stderr.trim()
+        );
     }
 
     let rpm_root = output_override

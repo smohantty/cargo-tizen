@@ -66,8 +66,10 @@ fi
 OLD_VERSION="$(current_version)"
 BUMP="${1:-patch}"
 
+FORCE_CURRENT=false
 if [ "$BUMP" = "--current" ]; then
     NEW_VERSION="$OLD_VERSION"
+    FORCE_CURRENT=true
 elif echo "$BUMP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     NEW_VERSION="$BUMP"
 elif echo "$BUMP" | grep -qE '^(major|minor|patch)$'; then
@@ -78,8 +80,13 @@ fi
 
 TAG="v${NEW_VERSION}"
 
+TAG_EXISTS=false
 if git rev-parse "$TAG" >/dev/null 2>&1; then
-    die "tag $TAG already exists"
+    if [ "$FORCE_CURRENT" = true ]; then
+        TAG_EXISTS=true
+    else
+        die "tag $TAG already exists (use --current to force-update)"
+    fi
 fi
 
 echo "==> Version: ${OLD_VERSION} -> ${NEW_VERSION} (tag: ${TAG})"
@@ -136,17 +143,7 @@ echo "==> Packaged: ${TARBALL_NAME} (${TARBALL_SIZE})"
 # Create tag and GitHub release
 # ---------------------------------------------------------------------------
 
-echo "==> Tagging ${TAG}..."
-git tag -a "$TAG" -m "Release ${TAG}"
-
-echo "==> Pushing tag..."
-git push origin HEAD "$TAG"
-
-echo "==> Creating GitHub release..."
-gh release create "$TAG" \
-    "$TARBALL_PATH" \
-    --title "$TAG" \
-    --notes "$(cat <<EOF
+RELEASE_NOTES="$(cat <<EOF
 ## cargo-tizen ${NEW_VERSION}
 
 ### Install
@@ -162,6 +159,29 @@ Or download the binary manually and place it in \`~/.cargo/bin/\`.
 - \`${TARBALL_NAME}\` — Linux ${ARCH_LABEL}, statically linked where possible
 EOF
 )"
+
+if [ "$TAG_EXISTS" = true ]; then
+    echo "==> Moving tag ${TAG} to HEAD..."
+    git tag -fa "$TAG" -m "Release ${TAG}"
+    git push origin "$TAG" --force
+
+    echo "==> Updating existing GitHub release..."
+    # Delete old assets and upload new ones
+    gh release upload "$TAG" "$TARBALL_PATH" --clobber
+    gh release edit "$TAG" --title "$TAG" --notes "$RELEASE_NOTES"
+else
+    echo "==> Tagging ${TAG}..."
+    git tag -a "$TAG" -m "Release ${TAG}"
+
+    echo "==> Pushing tag..."
+    git push origin HEAD "$TAG"
+
+    echo "==> Creating GitHub release..."
+    gh release create "$TAG" \
+        "$TARBALL_PATH" \
+        --title "$TAG" \
+        --notes "$RELEASE_NOTES"
+fi
 
 # ---------------------------------------------------------------------------
 # Cleanup

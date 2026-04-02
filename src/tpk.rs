@@ -660,6 +660,10 @@ mod tests {
     #[test]
     fn signing_profile_description_is_explicit() {
         assert_eq!(
+            describe_signing_profile(Some("tv_dev"), Some(SigningProfileSource::Cli)),
+            "using signing profile `tv_dev` from --sign"
+        );
+        assert_eq!(
             describe_signing_profile(Some("tv_dev"), Some(SigningProfileSource::Config)),
             "using signing profile `tv_dev` from config"
         );

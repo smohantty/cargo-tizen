@@ -7,6 +7,7 @@ use crate::arch::Arch;
 use crate::arch_detect;
 use crate::cli::SetupArgs;
 use crate::context::AppContext;
+use crate::output::{cargo_status, color_enabled};
 
 pub mod cache;
 pub mod provider;
@@ -49,12 +50,15 @@ pub fn run_setup(ctx: &AppContext, args: &SetupArgs) -> Result<()> {
     )?;
     let profile = resolved_defaults.profile;
     let platform_version = resolved_defaults.platform_version;
+    let use_color = color_enabled();
     if resolved_defaults.from_sdk_discovery
         && (args.profile.is_none() || args.platform_version.is_none())
     {
         ctx.info(format!(
-            "auto-selected installed rootstrap target: profile={} platform-version={}",
-            profile, platform_version
+            "{} profile={} platform-version={}",
+            cargo_status(use_color, "Rootstrap"),
+            profile,
+            platform_version
         ));
     }
 
@@ -74,7 +78,8 @@ pub fn run_setup(ctx: &AppContext, args: &SetupArgs) -> Result<()> {
 
     if cache::is_ready(&final_entry)? && !args.force {
         ctx.info(format!(
-            "sysroot cache hit: {} ({})",
+            "{} {} ({})",
+            cargo_status(use_color, "Sysroot ready"),
             final_entry.display(),
             arch
         ));
@@ -84,8 +89,10 @@ pub fn run_setup(ctx: &AppContext, args: &SetupArgs) -> Result<()> {
     let _lock = cache::acquire_lock(&final_entry)?;
     if cache::is_ready(&final_entry)? && !args.force {
         ctx.info(format!(
-            "sysroot cache became ready while waiting: {}",
-            final_entry.display()
+            "{} {} ({})",
+            cargo_status(use_color, "Sysroot ready"),
+            final_entry.display(),
+            arch
         ));
         return Ok(());
     }
@@ -135,7 +142,8 @@ pub fn run_setup(ctx: &AppContext, args: &SetupArgs) -> Result<()> {
     })?;
 
     ctx.info(format!(
-        "sysroot prepared: {} (provider: {})",
+        "{} {} (provider: {})",
+        cargo_status(use_color, "Sysroot ready"),
         final_entry.display(),
         selected_provider_kind
     ));
@@ -225,10 +233,13 @@ pub fn ensure_for_build(ctx: &AppContext, arch: Arch) -> Result<ResolvedSysroot>
     match resolve_for_build(ctx, arch) {
         Ok(resolved) => Ok(resolved),
         Err(initial_err) => {
+            let use_color = color_enabled();
             ctx.info(format!(
-                "sysroot for {} is not ready ({}). running setup with defaults...",
-                arch, initial_err
+                "{} sysroot for {} not cached, preparing...",
+                cargo_status(use_color, "Setup"),
+                arch
             ));
+            ctx.debug(format!("reason: {}", initial_err));
 
             let setup_args = SetupArgs {
                 arch: Some(arch),

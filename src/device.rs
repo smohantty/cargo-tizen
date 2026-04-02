@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::cli::DevicesArgs;
 use crate::context::AppContext;
+use crate::output::{color_enabled, colorize};
 use crate::sdk::TizenSdk;
 use crate::tool_env;
 
@@ -29,6 +30,8 @@ struct SdbEntry {
 
 pub fn run_devices(ctx: &AppContext, args: &DevicesArgs) -> Result<()> {
     let devices = discover_devices(ctx)?;
+    let use_color = color_enabled();
+
     if devices.is_empty() {
         ctx.info("no devices detected via sdb");
         return Ok(());
@@ -44,6 +47,9 @@ pub fn run_devices(ctx: &AppContext, args: &DevicesArgs) -> Result<()> {
         ctx.info(format!("found {ready} ready Tizen device(s):"));
     }
 
+    let tag_ok = colorize(use_color, "1;32", "[ok]");
+    let tag_warn = colorize(use_color, "1;33", "[warn]");
+
     let mut printed = 0usize;
     for device in &devices {
         let should_print = args.all || (device.state == "device" && device.is_tizen);
@@ -53,8 +59,8 @@ pub fn run_devices(ctx: &AppContext, args: &DevicesArgs) -> Result<()> {
 
         if device.state != "device" {
             ctx.info(format!(
-                "[warn] {} ({}) state={}",
-                device.id, device.model, device.state
+                "{} {} ({}) state={}",
+                tag_warn, device.id, device.model, device.state
             ));
             printed += 1;
             continue;
@@ -62,8 +68,8 @@ pub fn run_devices(ctx: &AppContext, args: &DevicesArgs) -> Result<()> {
 
         if !device.is_tizen {
             ctx.info(format!(
-                "[warn] {} ({}) is not a recognized Tizen target",
-                device.id, device.model
+                "{} {} ({}) is not a recognized Tizen target",
+                tag_warn, device.id, device.model
             ));
             printed += 1;
             continue;
@@ -77,8 +83,8 @@ pub fn run_devices(ctx: &AppContext, args: &DevicesArgs) -> Result<()> {
             "disabled"
         };
         ctx.info(format!(
-            "[ok] {} ({}) profile={} arch={} secure={}",
-            device.id, device.model, profile, arch, secure
+            "{} {} ({}) profile={} arch={} secure={}",
+            tag_ok, device.id, device.model, profile, arch, secure
         ));
         printed += 1;
     }

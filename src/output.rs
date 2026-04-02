@@ -143,15 +143,31 @@ pub fn print_report(
         .iter()
         .filter(|s| s.severity() == Severity::Error)
         .count();
+    let warn_count = sections
+        .iter()
+        .filter(|s| s.severity() == Severity::Warn)
+        .count();
     let total = sections.len();
 
-    if error_count == 0 {
+    if error_count > 0 {
         println!(
             "\n{}",
             colorize(
                 use_color,
-                "1;32",
-                &format!("✓ No issues ({total} categories checked)."),
+                "1;31",
+                &format!("✗ Issues found in {} of {} categories.", error_count, total),
+            )
+        );
+    } else if warn_count > 0 {
+        println!(
+            "\n{}",
+            colorize(
+                use_color,
+                "1;33",
+                &format!(
+                    "✓ Passed with warnings in {} of {total} categories.",
+                    warn_count
+                ),
             )
         );
     } else {
@@ -159,8 +175,8 @@ pub fn print_report(
             "\n{}",
             colorize(
                 use_color,
-                "1;31",
-                &format!("✗ Issues found in {} of {} categories.", error_count, total),
+                "1;32",
+                &format!("✓ No issues ({total} categories checked)."),
             )
         );
     }

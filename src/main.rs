@@ -37,7 +37,16 @@ fn parse_cli() -> Cli {
     Cli::parse_from(args)
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(err) = run() {
+        let use_color = output::color_enabled();
+        let prefix = output::colorize(use_color, "1;31", "error:");
+        eprintln!("{prefix} {err:#}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let cli = parse_cli();
     let config = config::Config::load()?;
     let ctx = AppContext::new(config);

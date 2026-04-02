@@ -1,10 +1,12 @@
 use std::fs;
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
 use crate::cli::ConfigArgs;
 use crate::config::{self, Config};
 use crate::context::AppContext;
+use crate::output::{color_enabled, colorize};
 
 pub fn run_config(ctx: &AppContext, args: &ConfigArgs) -> Result<()> {
     if let Some(sign) = &args.sign {
@@ -49,8 +51,96 @@ fn set_sign(ctx: &AppContext, sign: &str) -> Result<()> {
 }
 
 fn show_config(ctx: &AppContext) {
-    match ctx.config.tpk_sign() {
-        Some(sign) => ctx.info(format!("tpk.sign = {sign}")),
-        None => ctx.info("tpk.sign = (not set)"),
+    let use_color = color_enabled();
+    let cfg = &ctx.config;
+
+    // Config file locations
+    let user_path = config::user_config_path();
+    let project_path = PathBuf::from(".cargo-tizen.toml");
+
+    let label = |s: &str| colorize(use_color, "1", s);
+    let dim = |s: &str| colorize(use_color, "2", s);
+
+    if let Some(ref p) = user_path {
+        if p.exists() {
+            ctx.info(format!("{} {}", dim("user config:"), p.display()));
+        }
+    }
+    if project_path.exists() {
+        ctx.info(format!(
+            "{} {}",
+            dim("project config:"),
+            project_path
+                .canonicalize()
+                .unwrap_or(project_path)
+                .display()
+        ));
+    }
+
+    // [default]
+    ctx.info(format!("\n{}", label("[default]")));
+    show_field(ctx, "arch", cfg.default.arch.as_deref());
+    show_field(ctx, "package", cfg.default.package.as_deref());
+    show_field(ctx, "profile", cfg.default.profile.as_deref());
+    show_field(
+        ctx,
+        "platform_version",
+        cfg.default.platform_version.as_deref(),
+    );
+    show_field(ctx, "provider", cfg.default.provider.as_deref());
+    show_field(ctx, "packaging_dir", cfg.default.packaging_dir.as_deref());
+
+    // [sdk]
+    ctx.info(format!("\n{}", label("[sdk]")));
+    show_field(ctx, "root", cfg.sdk.root.as_deref());
+
+    // [cache]
+    ctx.info(format!("\n{}", label("[cache]")));
+    ctx.info(format!("  {} = {}", "root", cfg.cache_root().display()));
+
+    // [rpm]
+    ctx.info(format!("\n{}", label("[rpm]")));
+    show_field(ctx, "packager", cfg.rpm.packager.as_deref());
+    show_field(ctx, "license", cfg.rpm.license.as_deref());
+    if let Some(pkgs) = cfg.rpm.packages() {
+        ctx.info(format!("  packages = {:?}", pkgs));
+    } else {
+        show_field::<&str>(ctx, "packages", None);
+    }
+
+    // [tpk]
+    ctx.info(format!("\n{}", label("[tpk]")));
+    show_field(ctx, "sign", cfg.tpk.sign.as_deref());
+
+    // [arch.*] overrides
+    if !cfg.arch.is_empty() {
+        for (name, arch_cfg) in &cfg.arch {
+            ctx.info(format!("\n{}", label(&format!("[arch.{name}]"))));
+            show_field(ctx, "rust_target", arch_cfg.rust_target.as_deref());
+            show_field(ctx, "linker", arch_cfg.linker.as_deref());
+            show_field(ctx, "cc", arch_cfg.cc.as_deref());
+            show_field(ctx, "cxx", arch_cfg.cxx.as_deref());
+            show_field(ctx, "ar", arch_cfg.ar.as_deref());
+            show_field(ctx, "tizen_cli_arch", arch_cfg.tizen_cli_arch.as_deref());
+            show_field(
+                ctx,
+                "tizen_build_arch",
+                arch_cfg.tizen_build_arch.as_deref(),
+            );
+            show_field(ctx, "rpm_build_arch", arch_cfg.rpm_build_arch.as_deref());
+        }
+    }
+}
+
+fn show_field<V: std::fmt::Display>(ctx: &AppContext, key: &str, value: Option<V>) {
+    match value {
+        Some(v) => ctx.info(format!("  {key} = {v}")),
+        None => {
+            let use_color = color_enabled();
+            ctx.info(format!(
+                "  {key} = {}",
+                colorize(use_color, "2", "(not set)")
+            ));
+        }
     }
 }

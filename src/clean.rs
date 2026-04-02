@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 
 use crate::cli::CleanArgs;
 use crate::context::AppContext;
+use crate::output::{cargo_status, color_enabled};
 
 pub fn run_clean(ctx: &AppContext, args: &CleanArgs) -> Result<()> {
     let mut clean_build = args.build;
@@ -34,15 +35,23 @@ fn clean_build_outputs(ctx: &AppContext, args: &CleanArgs) -> Result<()> {
     }
 
     let tizen_dir = target_root.join("tizen");
+    let use_color = color_enabled();
     if let Some(arch) = args.arch {
         remove_if_exists(&target_root.join(arch.rust_target()))?;
         remove_if_exists(&tizen_dir.join(arch.as_str()))?;
-        ctx.info(format!("removed build outputs for arch {}", arch));
+        ctx.info(format!(
+            "{} build outputs for arch {}",
+            cargo_status(use_color, "Removed"),
+            arch
+        ));
         return Ok(());
     }
 
     remove_if_exists(&tizen_dir)?;
-    ctx.info("removed target/tizen build outputs");
+    ctx.info(format!(
+        "{} target/tizen build outputs",
+        cargo_status(use_color, "Removed")
+    ));
     Ok(())
 }
 
@@ -52,15 +61,21 @@ fn clean_sysroots(ctx: &AppContext, args: &CleanArgs) -> Result<()> {
         return Ok(());
     }
 
+    let use_color = color_enabled();
     if let Some(arch) = args.arch {
         remove_arch_entries(&cache_root, arch.as_str())?;
-        ctx.info(format!("removed sysroot cache entries for arch {}", arch));
+        ctx.info(format!(
+            "{} sysroot cache entries for arch {}",
+            cargo_status(use_color, "Removed"),
+            arch
+        ));
         return Ok(());
     }
 
     remove_if_exists(&cache_root)?;
     ctx.info(format!(
-        "removed all sysroot cache entries: {}",
+        "{} all sysroot cache entries ({})",
+        cargo_status(use_color, "Removed"),
         cache_root.display()
     ));
     Ok(())

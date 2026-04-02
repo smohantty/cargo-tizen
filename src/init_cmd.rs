@@ -8,6 +8,7 @@ use serde::Deserialize;
 use crate::cli::InitArgs;
 use crate::config::Config;
 use crate::context::AppContext;
+use crate::output::{cargo_status, color_enabled};
 use crate::package_select::{ManifestKind, inspect_manifest, workspace_selection_message};
 use crate::packaging::PackagingLayout;
 
@@ -39,8 +40,14 @@ pub fn run_init(ctx: &AppContext, args: &InitArgs) -> Result<()> {
         )?);
     }
 
+    let use_color = color_enabled();
     for outcome in &outcomes {
-        ctx.info(format!("{} {}", outcome.verb(), outcome.path.display()));
+        let label = match outcome.status {
+            ScaffoldStatus::Created => cargo_status(use_color, "Created"),
+            ScaffoldStatus::Overwritten => cargo_status(use_color, "Overwrote"),
+            ScaffoldStatus::Skipped => cargo_status(use_color, "Skipped"),
+        };
+        ctx.info(format!("{} {}", label, outcome.path.display()));
     }
 
     if outcomes
@@ -346,16 +353,6 @@ enum ScaffoldStatus {
 struct ScaffoldOutcome {
     path: PathBuf,
     status: ScaffoldStatus,
-}
-
-impl ScaffoldOutcome {
-    fn verb(&self) -> &'static str {
-        match self.status {
-            ScaffoldStatus::Created => "created",
-            ScaffoldStatus::Overwritten => "overwrote",
-            ScaffoldStatus::Skipped => "skipped",
-        }
-    }
 }
 
 fn write_scaffold_file(path: &Path, content: &str, force: bool) -> Result<ScaffoldOutcome> {

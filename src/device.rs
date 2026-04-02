@@ -6,7 +6,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::cli::DevicesArgs;
 use crate::context::AppContext;
-use crate::output::{color_enabled, colorize};
+use crate::output::{cargo_status, color_enabled, colorize};
 use crate::sdk::TizenSdk;
 use crate::tool_env;
 
@@ -174,7 +174,13 @@ pub fn install_tpk_on_device(ctx: &AppContext, device: &TizenDevice, tpk: &Path)
         );
     }
 
-    ctx.info(format!("installed {} on {}", tpk.display(), device.id));
+    let use_color = color_enabled();
+    ctx.info(format!(
+        "{} {} on {}",
+        cargo_status(use_color, "Installed"),
+        tpk.display(),
+        device.id
+    ));
     Ok(())
 }
 

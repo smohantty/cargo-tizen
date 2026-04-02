@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 
 pub const DEFAULT_PACKAGING_DIR: &str = "tizen";
-pub const RPM_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-app";
-pub const RPM_SERVICE_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-service-app";
 pub const TPK_REFERENCE_PROJECT: &str = "templates/reference-projects/tpk-service-app";
 
 #[derive(Debug, Clone)]
@@ -44,7 +42,11 @@ impl PackagingLayout {
             format!("packaging root is missing: {}", self.root.display())
         };
         bail!(
-            "missing RPM spec for package `{package_name}`\nexpected: {}\n{status}\nexpected spec filename comes from [package].name\nstandard layout: <packaging-dir>/rpm/<cargo-package-name>.spec\ncustom packaging root: cargo tizen rpm --packaging-dir <dir>\nreference projects: {RPM_REFERENCE_PROJECT} (minimal), {RPM_SERVICE_REFERENCE_PROJECT} (with extra sources)",
+            "missing RPM spec for package `{package_name}`\n\
+             expected: {}\n\
+             {status}\n\n\
+             quick fix: cargo tizen init --rpm\n\
+             custom packaging root: cargo tizen rpm --packaging-dir <dir>",
             path.display()
         )
     }
@@ -87,7 +89,11 @@ impl PackagingLayout {
             format!("packaging root is missing: {}", self.root.display())
         };
         bail!(
-            "missing TPK manifest\nexpected: {}\n{migration_hint}\nstandard layout: <packaging-dir>/tpk/tizen-manifest.xml\ncustom packaging root: cargo tizen tpk --packaging-dir <dir>\nreference project: {TPK_REFERENCE_PROJECT}",
+            "missing TPK manifest\n\
+             expected: {}\n\
+             {migration_hint}\n\n\
+             quick fix: cargo tizen init --tpk\n\
+             custom packaging root: cargo tizen tpk --packaging-dir <dir>",
             path.display()
         )
     }
@@ -130,11 +136,11 @@ impl PackagingLayout {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        PackagingLayout, RPM_REFERENCE_PROJECT, RPM_SERVICE_REFERENCE_PROJECT,
-        TPK_REFERENCE_PROJECT,
-    };
+    use super::{PackagingLayout, TPK_REFERENCE_PROJECT};
     use std::path::PathBuf;
+
+    const RPM_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-app";
+    const RPM_SERVICE_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-service-app";
 
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -215,8 +221,7 @@ mod tests {
             .expect_err("missing spec should error")
             .to_string();
         assert!(err.contains("missing RPM spec"));
-        assert!(err.contains("<packaging-dir>/rpm/<cargo-package-name>.spec"));
-        assert!(err.contains(RPM_REFERENCE_PROJECT));
+        assert!(err.contains("cargo tizen init --rpm"));
     }
 
     #[test]
@@ -227,7 +232,6 @@ mod tests {
             .expect_err("missing manifest should error")
             .to_string();
         assert!(err.contains("missing TPK manifest"));
-        assert!(err.contains("<packaging-dir>/tpk/tizen-manifest.xml"));
-        assert!(err.contains(TPK_REFERENCE_PROJECT));
+        assert!(err.contains("cargo tizen init --tpk"));
     }
 }

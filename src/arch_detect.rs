@@ -51,22 +51,30 @@ pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str
                 .map(|arch| arch.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
+            let examples = arches
+                .iter()
+                .map(|arch| format!("  cargo tizen {} -A {}", command_name, arch))
+                .collect::<Vec<_>>()
+                .join("\n");
             bail!(
-                "unable to auto-detect arch for `cargo tizen {}` because connected devices \
-report multiple architectures ({}). pass -A/--arch <{}>",
-                command_name,
-                values,
-                supported_arch_list()
+                "multiple device architectures detected ({values})\n\
+                 pick one:\n{examples}"
             );
         }
         DeviceArchSelection::None => {}
     }
 
+    let examples = Arch::all()
+        .iter()
+        .map(|arch| format!("  cargo tizen {} -A {}", command_name, arch))
+        .collect::<Vec<_>>()
+        .join("\n");
     bail!(
-        "unable to auto-detect arch for `cargo tizen {}`. pass -A/--arch <{}> \
-or set [default].arch in .cargo-tizen.toml",
-        command_name,
-        supported_arch_list()
+        "target architecture required for `cargo tizen {command_name}`\n\n\
+         pick one:\n{examples}\n\n\
+         or set a default in .cargo-tizen.toml:\n\
+         [default]\n\
+         arch = \"aarch64\""
     )
 }
 

@@ -53,25 +53,50 @@ pub fn resolve_arch(ctx: &AppContext, explicit: Option<Arch>, command_name: &str
                 .join(", ");
             let examples = arches
                 .iter()
-                .map(|arch| format!("  cargo tizen {} -A {}", command_name, arch))
+                .map(|arch| {
+                    format!(
+                        "  cargo tizen {command_name} -A {:<10} ({})",
+                        arch.as_str(),
+                        arch.rust_target()
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             bail!(
-                "multiple device architectures detected ({values})\n\
+                "multiple device architectures detected ({values})\n\n\
                  pick one:\n{examples}"
             );
         }
         DeviceArchSelection::None => {}
     }
 
-    let examples = Arch::all()
+    let project_config_exists = ctx.workspace_root.join(".cargo-tizen.toml").is_file();
+    let arch_lines = Arch::all()
         .iter()
-        .map(|arch| format!("  cargo tizen {} -A {}", command_name, arch))
+        .map(|arch| {
+            format!(
+                "  cargo tizen {command_name} -A {:<10} ({})",
+                arch.as_str(),
+                arch.rust_target()
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
+
+    if !project_config_exists {
+        bail!(
+            "project not initialized for cargo-tizen\n\n\
+             get started:\n\
+             \x20 cargo tizen init              create project config\n\
+             \x20 cargo tizen init --rpm        also scaffold RPM packaging\n\
+             \x20 cargo tizen init --tpk        also scaffold TPK packaging\n\n\
+             then run:\n{arch_lines}"
+        )
+    }
+
     bail!(
         "target architecture required for `cargo tizen {command_name}`\n\n\
-         pick one:\n{examples}\n\n\
+         pick one:\n{arch_lines}\n\n\
          or set a default in .cargo-tizen.toml:\n\
          [default]\n\
          arch = \"aarch64\""

@@ -35,7 +35,7 @@ pub enum ManifestKind {
 #[derive(Debug, Deserialize)]
 struct CargoManifest {
     package: Option<ManifestPackage>,
-    workspace: Option<toml::Value>,
+    workspace: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -79,7 +79,7 @@ pub fn resolve_for_command(
 pub fn inspect_manifest(path: &Path) -> Result<ManifestKind> {
     let raw = fs::read_to_string(path)
         .with_context(|| format!("failed to read Cargo manifest {}", path.display()))?;
-    let parsed: CargoManifest = toml::from_str(&raw)
+    let parsed: CargoManifest = basic_toml::from_str(&raw)
         .with_context(|| format!("failed to parse Cargo manifest {}", path.display()))?;
 
     if let Some(package) = parsed.package {

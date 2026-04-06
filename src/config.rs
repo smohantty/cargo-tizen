@@ -94,7 +94,7 @@ impl Config {
     fn read_file(path: &Path) -> Result<Self> {
         let raw = fs::read_to_string(path)
             .with_context(|| format!("failed to read config: {}", path.display()))?;
-        let parsed: Self = toml::from_str(&raw)
+        let parsed: Self = basic_toml::from_str(&raw)
             .with_context(|| format!("failed to parse config: {}", path.display()))?;
         Ok(parsed)
     }
@@ -346,14 +346,14 @@ mod tests {
 
     #[test]
     fn rpm_packages_none_when_omitted() {
-        let config: Config = toml::from_str("[rpm]\npackager = \"test\"\n").unwrap();
+        let config: Config = basic_toml::from_str("[rpm]\npackager = \"test\"\n").unwrap();
         assert!(config.rpm.packages.is_none());
         assert!(config.rpm.packages().is_none());
     }
 
     #[test]
     fn rpm_packages_some_when_present() {
-        let config: Config = toml::from_str("[rpm]\npackages = [\"a\", \"b\"]\n").unwrap();
+        let config: Config = basic_toml::from_str("[rpm]\npackages = [\"a\", \"b\"]\n").unwrap();
         assert_eq!(
             config.rpm.packages,
             Some(vec!["a".to_string(), "b".to_string()])
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn rpm_packages_empty_treated_as_unset() {
-        let config: Config = toml::from_str("[rpm]\npackages = []\n").unwrap();
+        let config: Config = basic_toml::from_str("[rpm]\npackages = []\n").unwrap();
         assert_eq!(config.rpm.packages, Some(vec![]));
         // The accessor treats empty as unset
         assert!(config.rpm.packages().is_none());

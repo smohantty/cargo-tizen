@@ -197,7 +197,7 @@ fn load_cargo_metadata(workspace_root: &Path) -> Result<CargoMetadata> {
 fn project_packaging_root(workspace_root: &Path) -> Option<PathBuf> {
     let path = workspace_root.join(".cargo-tizen.toml");
     let raw = fs::read_to_string(path).ok()?;
-    let config: Config = toml::from_str(&raw).ok()?;
+    let config: Config = basic_toml::from_str(&raw).ok()?;
     config.packaging_dir()
 }
 

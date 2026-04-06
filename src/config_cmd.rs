@@ -24,7 +24,7 @@ fn set_sign(ctx: &AppContext, sign: &str) -> Result<()> {
     let mut cfg = if path.exists() {
         let raw = fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
-        toml::from_str::<Config>(&raw)
+        basic_toml::from_str::<Config>(&raw)
             .with_context(|| format!("failed to parse {}", path.display()))?
     } else {
         Config::default()
@@ -43,7 +43,7 @@ fn set_sign(ctx: &AppContext, sign: &str) -> Result<()> {
             .with_context(|| format!("failed to create config directory {}", parent.display()))?;
     }
 
-    let serialized = toml::to_string_pretty(&cfg).context("failed to serialize config")?;
+    let serialized = basic_toml::to_string(&cfg).context("failed to serialize config")?;
     fs::write(&path, serialized).with_context(|| format!("failed to write {}", path.display()))?;
 
     ctx.info(format!("wrote {}", path.display()));

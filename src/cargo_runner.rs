@@ -184,7 +184,7 @@ struct CargoPackage {
 
 fn package_name_from_manifest(path: &Path) -> Option<String> {
     let raw = fs::read_to_string(path).ok()?;
-    match toml::from_str::<CargoManifest>(&raw) {
+    match basic_toml::from_str::<CargoManifest>(&raw) {
         Ok(parsed) => parsed.package.map(|pkg| pkg.name),
         Err(e) => {
             eprintln!("warning: failed to parse {}: {e}", path.display());

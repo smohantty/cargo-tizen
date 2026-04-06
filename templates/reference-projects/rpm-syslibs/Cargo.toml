@@ -1,0 +1,8 @@
+[package]
+name = "hello-syslibs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+openssl = "0.10"
+rusqlite = { version = "0.34", features = ["column_decltype"] }

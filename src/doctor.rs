@@ -8,7 +8,7 @@ use crate::cli::DoctorArgs;
 use crate::context::AppContext;
 use crate::output::{Section, color_enabled, print_report};
 use crate::package_select::{self, ManifestKind};
-use crate::packaging::PackagingLayout;
+use crate::packaging::{PackagingLayout, RpmSpecStatus};
 use crate::rust_target;
 use crate::sdk::TizenSdk;
 use crate::sysroot;
@@ -303,14 +303,16 @@ fn build_packaging_section(ctx: &AppContext) -> Section {
     sec.ok(format!("packaging root: {}", packaging.root().display()));
 
     let spec_name = ctx.config.rpm_spec_name().unwrap_or(&package_name);
-    let rpm_spec = packaging.rpm_spec_path(spec_name);
-    if rpm_spec.is_file() {
-        sec.ok(format!("rpm spec: {}", rpm_spec.display()));
-    } else {
-        sec.warn_multiline(&format!(
-            "rpm spec missing: {}\ngenerate with: cargo tizen init --rpm",
-            rpm_spec.display()
-        ));
+    match packaging.inspect_rpm_spec(spec_name) {
+        Ok(RpmSpecStatus::Found(rpm_spec)) => {
+            sec.ok(format!("rpm spec: {}", rpm_spec.display()));
+        }
+        Ok(RpmSpecStatus::Missing(missing)) => {
+            sec.warn_multiline(&missing.doctor_message());
+        }
+        Err(err) => {
+            sec.warn(format!("failed to inspect rpm spec layout: {err}"));
+        }
     }
 
     let tpk_manifest = packaging.tpk_manifest_path();

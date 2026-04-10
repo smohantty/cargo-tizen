@@ -1,9 +1,87 @@
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
 
 pub const DEFAULT_PACKAGING_DIR: &str = "tizen";
 pub const TPK_REFERENCE_PROJECT: &str = "templates/reference-projects/tpk-service-app";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingRpmSpec {
+    pub expected_path: PathBuf,
+    pub rpm_dir: PathBuf,
+    pub alternate_specs: Vec<PathBuf>,
+}
+
+impl MissingRpmSpec {
+    pub fn command_message(&self, package_name: &str) -> String {
+        if self.alternate_specs.is_empty() {
+            return format!(
+                "RPM spec not found for package `{package_name}`\n\n\
+                 no RPM spec files found in: {}\n\
+                 run: cargo tizen init --rpm\n\n\
+                 expected at: {}",
+                self.rpm_dir.display(),
+                self.expected_path.display()
+            );
+        }
+
+        format!(
+            "RPM spec not found for package `{package_name}`\n\n\
+             expected at: {}\n\n\
+             different RPM spec file(s) found in: {}\n\
+             {}\n\n\
+             if you changed [package].name, rename the spec or regenerate it with:\n\
+               cargo tizen init --rpm",
+            self.expected_path.display(),
+            self.rpm_dir.display(),
+            self.render_alternate_specs()
+        )
+    }
+
+    pub fn doctor_message(&self) -> String {
+        if self.alternate_specs.is_empty() {
+            return format!(
+                "rpm spec missing: {}\n\
+                 no RPM spec files found in: {}\n\
+                 generate with: cargo tizen init --rpm",
+                self.expected_path.display(),
+                self.rpm_dir.display()
+            );
+        }
+
+        format!(
+            "rpm spec missing: {}\n\
+             different RPM spec file(s) found in: {}\n\
+             {}\n\
+             if you changed [package].name, rename the spec or regenerate it with: cargo tizen init --rpm",
+            self.expected_path.display(),
+            self.rpm_dir.display(),
+            self.render_alternate_specs()
+        )
+    }
+
+    fn render_alternate_specs(&self) -> String {
+        self.alternate_specs
+            .iter()
+            .map(|path| {
+                format!(
+                    "  - {}",
+                    path.file_name()
+                        .unwrap_or(path.as_os_str())
+                        .to_string_lossy()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RpmSpecStatus {
+    Found(PathBuf),
+    Missing(MissingRpmSpec),
+}
 
 #[derive(Debug, Clone)]
 pub struct PackagingLayout {
@@ -35,21 +113,58 @@ impl PackagingLayout {
     }
 
     pub fn rpm_spec_path(&self, package_name: &str) -> PathBuf {
-        self.root.join("rpm").join(format!("{package_name}.spec"))
+        self.rpm_dir().join(format!("{package_name}.spec"))
     }
 
     pub fn resolve_rpm_spec(&self, package_name: &str) -> Result<PathBuf> {
+        match self.inspect_rpm_spec(package_name)? {
+            RpmSpecStatus::Found(path) => Ok(path),
+            RpmSpecStatus::Missing(missing) => bail!(missing.command_message(package_name)),
+        }
+    }
+
+    pub fn inspect_rpm_spec(&self, package_name: &str) -> Result<RpmSpecStatus> {
         let path = self.rpm_spec_path(package_name);
         if path.is_file() {
-            return Ok(path);
+            return Ok(RpmSpecStatus::Found(path));
         }
 
-        bail!(
-            "RPM spec not found for package `{package_name}`\n\n\
-             run: cargo tizen init --rpm\n\n\
-             expected at: {}",
-            path.display()
-        )
+        let alternate_specs = self.collect_rpm_specs()?;
+        Ok(RpmSpecStatus::Missing(MissingRpmSpec {
+            expected_path: path,
+            rpm_dir: self.rpm_dir(),
+            alternate_specs,
+        }))
+    }
+
+    fn rpm_dir(&self) -> PathBuf {
+        self.root.join("rpm")
+    }
+
+    fn collect_rpm_specs(&self) -> Result<Vec<PathBuf>> {
+        let rpm_dir = self.rpm_dir();
+        if !rpm_dir.exists() {
+            return Ok(Vec::new());
+        }
+        if !rpm_dir.is_dir() {
+            bail!(
+                "RPM packaging directory exists but is not a directory\n\
+                 path: {}\n\
+                 expected layout: <packaging-dir>/rpm/",
+                rpm_dir.display()
+            );
+        }
+
+        let mut specs = Vec::new();
+        for entry in fs::read_dir(&rpm_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("spec") {
+                specs.push(path);
+            }
+        }
+        specs.sort();
+        Ok(specs)
     }
 
     pub fn rpm_sources_dir(&self) -> Result<Option<PathBuf>> {
@@ -138,8 +253,11 @@ impl PackagingLayout {
 
 #[cfg(test)]
 mod tests {
-    use super::{PackagingLayout, TPK_REFERENCE_PROJECT};
+    use std::fs;
     use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    use super::{PackagingLayout, RpmSpecStatus, TPK_REFERENCE_PROJECT};
 
     const RPM_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-app";
     const RPM_SERVICE_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-service-app";
@@ -230,13 +348,54 @@ mod tests {
 
     #[test]
     fn missing_rpm_spec_error_is_actionable() {
-        let layout = PackagingLayout::new(&repo_root().join("templates"), None);
+        let dir = tempdir().unwrap();
+        let layout = PackagingLayout::new(dir.path(), None);
         let err = layout
             .resolve_rpm_spec("missing-app")
             .expect_err("missing spec should error")
             .to_string();
         assert!(err.contains("RPM spec not found"));
+        assert!(err.contains("no RPM spec files found"));
         assert!(err.contains("cargo tizen init --rpm"));
+    }
+
+    #[test]
+    fn missing_rpm_spec_reports_alternate_specs() {
+        let dir = tempdir().unwrap();
+        let rpm_dir = dir.path().join("tizen/rpm");
+        fs::create_dir_all(&rpm_dir).unwrap();
+        fs::write(rpm_dir.join("old-name.spec"), "Name: old-name\n").unwrap();
+
+        let layout = PackagingLayout::new(dir.path(), None);
+        let err = layout
+            .resolve_rpm_spec("new-name")
+            .expect_err("mismatched spec should error")
+            .to_string();
+
+        assert!(err.contains("different RPM spec file(s) found"));
+        assert!(err.contains("old-name.spec"));
+        assert!(err.contains("rename the spec or regenerate it"));
+    }
+
+    #[test]
+    fn inspect_rpm_spec_reports_alternates_for_doctor() {
+        let dir = tempdir().unwrap();
+        let rpm_dir = dir.path().join("tizen/rpm");
+        fs::create_dir_all(&rpm_dir).unwrap();
+        fs::write(rpm_dir.join("legacy.spec"), "Name: legacy\n").unwrap();
+
+        let layout = PackagingLayout::new(dir.path(), None);
+        let status = layout.inspect_rpm_spec("current").unwrap();
+
+        match status {
+            RpmSpecStatus::Missing(missing) => {
+                let message = missing.doctor_message();
+                assert!(message.contains("rpm spec missing"));
+                assert!(message.contains("different RPM spec file(s) found"));
+                assert!(message.contains("legacy.spec"));
+            }
+            RpmSpecStatus::Found(path) => panic!("expected missing spec, got {}", path.display()),
+        }
     }
 
     #[test]

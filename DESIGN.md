@@ -455,8 +455,8 @@ Given `cargo tizen rpm -A aarch64`:
    - `[package].packages` from `.cargo-tizen.toml`: one or more packages.
    - Root `[package].name` from `Cargo.toml`: single-package fallback.
 2. Validate packaging inputs:
-   - `<packaging-dir>/rpm/<first-package-name>.spec` (multi-package uses first entry in `[package].packages`)
-   - fail if it does not exist
+   - `<packaging-dir>/rpm/<rpm-name>.spec` where `<rpm-name>` is `[package].name` from `.cargo-tizen.toml` or the resolved single package name when no project config exists
+   - fail if it does not exist; if other `.spec` files are present in `<packaging-dir>/rpm/`, list them in the diagnostic to surface name mismatches
    - if `<packaging-dir>/rpm/sources/` exists, require it to be a directory
 3. Run build phase unless `--no-build`. For multiple packages, passes `-p <name>` per package.
 4. Stage binaries (atomic):

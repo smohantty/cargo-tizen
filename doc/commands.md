@@ -142,7 +142,7 @@ Current behavior:
 - Looks for the spec at `<packaging-dir>/rpm/<package-name>.spec`.
 - Default packaging root is `<workspace>/tizen`.
 - In a multi-package workspace, select the package with `-p/--package` or `[package].packages` in `.cargo-tizen.toml`.
-- If the spec is missing, the command fails before the build starts and prints the expected path plus the `--packaging-dir` escape hatch.
+- If the expected spec is missing, the command fails before the build starts and prints the expected path. When differently named `.spec` files are present in `<packaging-dir>/rpm/`, it lists them to help diagnose `[package].name` mismatches.
 - Staging expects the built binary path `<target-dir>/<rust-target>/<profile>/<package-name>`.
 
 **Multi-package RPM:** To bundle multiple binaries from a workspace into a single RPM, set `[package].name` and `[package].packages` in `.cargo-tizen.toml`:

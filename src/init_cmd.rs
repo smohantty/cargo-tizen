@@ -9,6 +9,7 @@ use crate::cli::InitArgs;
 use crate::config::Config;
 use crate::context::AppContext;
 use crate::output::{cargo_status, color_enabled};
+use crate::package_select;
 use crate::package_select::{ManifestKind, inspect_manifest, workspace_selection_message};
 use crate::packaging::PackagingLayout;
 
@@ -26,9 +27,10 @@ pub fn run_init(ctx: &AppContext, args: &InitArgs) -> Result<()> {
     )?);
 
     if targets.rpm {
+        let rpm_scaffold = resolve_rpm_scaffold(ctx, args, &package)?;
         outcomes.push(write_scaffold_file(
-            &packaging.rpm_spec_path(&package.name),
-            &render_rpm_spec(&package),
+            &packaging.rpm_spec_path(&rpm_scaffold.rpm_name),
+            &render_rpm_spec(&rpm_scaffold),
             args.force,
         )?);
         let sources_gitkeep = packaging
@@ -121,6 +123,15 @@ struct ScaffoldPackage {
     description: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct RpmScaffold {
+    rpm_name: String,
+    package_names: Vec<String>,
+    version: String,
+    license: Option<String>,
+    description: Option<String>,
+}
+
 fn resolve_scaffold_package(ctx: &AppContext, args: &InitArgs) -> Result<ScaffoldPackage> {
     let manifest_path = ctx.workspace_root.join("Cargo.toml");
     let manifest_kind = inspect_manifest(&manifest_path)?;
@@ -168,6 +179,44 @@ fn resolve_scaffold_package(ctx: &AppContext, args: &InitArgs) -> Result<Scaffol
             description: None,
         }),
     }
+}
+
+fn resolve_rpm_scaffold(
+    ctx: &AppContext,
+    args: &InitArgs,
+    package: &ScaffoldPackage,
+) -> Result<RpmScaffold> {
+    let rpm_name = resolve_rpm_scaffold_name(ctx, package)?;
+    let package_names = package_select::resolve_rpm_packages(ctx, args.package.as_deref())?
+        .into_iter()
+        .map(|pkg| pkg.name)
+        .collect();
+
+    Ok(RpmScaffold {
+        rpm_name,
+        package_names,
+        version: package.version.clone(),
+        license: package.license.clone(),
+        description: package.description.clone(),
+    })
+}
+
+fn resolve_rpm_scaffold_name(ctx: &AppContext, package: &ScaffoldPackage) -> Result<String> {
+    if ctx.workspace_root.join(".cargo-tizen.toml").exists() {
+        return ctx
+            .config
+            .package
+            .name()
+            .map(ToString::to_string)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "existing .cargo-tizen.toml is missing [package].name\n\
+                 set [package].name and rerun cargo tizen init --rpm"
+                )
+            });
+    }
+
+    Ok(package.name.clone())
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -269,23 +318,57 @@ fn package_has_bin_target(package: &MetadataPackage) -> bool {
         .any(|target| target.kind.iter().any(|kind| kind == "bin"))
 }
 
-fn render_rpm_spec(package: &ScaffoldPackage) -> String {
-    let summary = package
+fn render_rpm_spec(scaffold: &RpmScaffold) -> String {
+    let summary = scaffold
         .description
         .as_deref()
         .map(single_line)
         .filter(|text| !text.is_empty())
-        .unwrap_or_else(|| format!("cargo-tizen generated RPM package for {}", package.name));
-    let license = package
+        .unwrap_or_else(|| {
+            format!(
+                "cargo-tizen generated RPM package for {}",
+                scaffold.rpm_name
+            )
+        });
+    let license = scaffold
         .license
         .clone()
         .unwrap_or_else(|| "LicenseRef-Unknown".to_string());
-    let description = package
+    let description = scaffold
         .description
         .as_deref()
         .map(single_line)
         .filter(|text| !text.is_empty())
-        .unwrap_or_else(|| format!("Starter RPM spec for the `{}` binary.", package.name));
+        .unwrap_or_else(|| match scaffold.package_names.as_slice() {
+            [package_name] => format!("Starter RPM spec for the `{package_name}` binary."),
+            package_names => format!(
+                "Starter RPM spec for the `{}` package. Includes staged binaries: {}.",
+                scaffold.rpm_name,
+                package_names.join(", ")
+            ),
+        });
+    let source_lines = scaffold
+        .package_names
+        .iter()
+        .enumerate()
+        .map(|(index, package_name)| format!("Source{index}:        {package_name}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let install_lines = scaffold
+        .package_names
+        .iter()
+        .enumerate()
+        .map(|(index, package_name)| {
+            format!("install -Dm0755 %{{SOURCE{index}}} %{{buildroot}}/usr/bin/{package_name}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let file_lines = scaffold
+        .package_names
+        .iter()
+        .map(|package_name| format!("/usr/bin/{package_name}"))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     format!(
         "Name:           {name}\n\
@@ -294,7 +377,7 @@ fn render_rpm_spec(package: &ScaffoldPackage) -> String {
          Summary:        {summary}\n\
          License:        {license}\n\
          BuildArch:      %{{_target_cpu}}\n\
-         Source0:        {name}\n\
+         {source_lines}\n\
          \n\
          %description\n\
          {description}\n\
@@ -304,15 +387,18 @@ fn render_rpm_spec(package: &ScaffoldPackage) -> String {
          %build\n\
          \n\
          %install\n\
-         install -Dm0755 %{{SOURCE0}} %{{buildroot}}/usr/bin/{name}\n\
+         {install_lines}\n\
          \n\
          %files\n\
-         /usr/bin/{name}\n",
-        name = package.name,
-        version = package.version,
+         {file_lines}\n",
+        name = scaffold.rpm_name,
+        version = scaffold.version,
         summary = summary,
         license = license,
         description = description,
+        source_lines = source_lines,
+        install_lines = install_lines,
+        file_lines = file_lines,
     )
 }
 
@@ -448,11 +534,13 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        CargoMetadata, MetadataPackage, MetadataTarget, ScaffoldPackage, ScaffoldStatus,
-        render_project_config, render_rpm_spec, render_tpk_manifest, select_workspace_package,
-        selected_targets, write_scaffold_file,
+        CargoMetadata, MetadataPackage, MetadataTarget, RpmScaffold, ScaffoldPackage,
+        ScaffoldStatus, render_project_config, render_rpm_spec, render_tpk_manifest, run_init,
+        select_workspace_package, selected_targets, write_scaffold_file,
     };
     use crate::cli::InitArgs;
+    use crate::config::Config;
+    use crate::context::AppContext;
 
     fn init_args() -> InitArgs {
         InitArgs {
@@ -530,16 +618,37 @@ mod tests {
 
     #[test]
     fn rpm_spec_uses_target_cpu_macro() {
-        let package = ScaffoldPackage {
-            name: "demo-app".to_string(),
+        let scaffold = RpmScaffold {
+            rpm_name: "demo-app".to_string(),
+            package_names: vec!["demo-app".to_string()],
             version: "1.2.3".to_string(),
             license: Some("MIT".to_string()),
             description: Some("Demo package".to_string()),
         };
-        let spec = render_rpm_spec(&package);
+        let spec = render_rpm_spec(&scaffold);
         assert!(spec.contains("BuildArch:      %{_target_cpu}"));
         assert!(spec.contains("Version:        1.2.3"));
         assert!(spec.contains("Source0:        demo-app"));
+    }
+
+    #[test]
+    fn rpm_spec_uses_configured_name_and_all_sources_for_multi_package() {
+        let scaffold = RpmScaffold {
+            rpm_name: "demo-bundle".to_string(),
+            package_names: vec!["demo-server".to_string(), "demo-cli".to_string()],
+            version: "1.2.3".to_string(),
+            license: Some("MIT".to_string()),
+            description: None,
+        };
+
+        let spec = render_rpm_spec(&scaffold);
+        assert!(spec.contains("Name:           demo-bundle"));
+        assert!(spec.contains("Source0:        demo-server"));
+        assert!(spec.contains("Source1:        demo-cli"));
+        assert!(spec.contains("install -Dm0755 %{SOURCE0} %{buildroot}/usr/bin/demo-server"));
+        assert!(spec.contains("install -Dm0755 %{SOURCE1} %{buildroot}/usr/bin/demo-cli"));
+        assert!(spec.contains("/usr/bin/demo-server"));
+        assert!(spec.contains("/usr/bin/demo-cli"));
     }
 
     #[test]
@@ -586,5 +695,120 @@ mod tests {
         let outcome = write_scaffold_file(&path, "after", false).unwrap();
         assert_eq!(outcome.status, ScaffoldStatus::Skipped);
         assert_eq!(fs::read_to_string(&path).unwrap(), "before");
+    }
+
+    #[test]
+    fn init_rpm_uses_existing_package_name_override_for_spec_path() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("hello-server/src")).unwrap();
+        fs::create_dir_all(dir.path().join("hello-cli/src")).unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"hello-server\", \"hello-cli\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("hello-server/Cargo.toml"),
+            "[package]\nname = \"hello-server\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("hello-server/src/main.rs"),
+            "fn main() {}\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("hello-cli/Cargo.toml"),
+            "[package]\nname = \"hello-cli\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("hello-cli/src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(
+            dir.path().join(".cargo-tizen.toml"),
+            "# Generated by cargo tizen init.\n\
+             [default]\n\
+             arch = \"aarch64\"\n\
+             profile = \"mobile\"\n\
+             platform_version = \"10.0\"\n\
+             \n\
+             [package]\n\
+             name = \"hello-multi\"\n\
+             packages = [\"hello-server\", \"hello-cli\"]\n",
+        )
+        .unwrap();
+
+        let config: Config = basic_toml::from_str(
+            &fs::read_to_string(dir.path().join(".cargo-tizen.toml")).unwrap(),
+        )
+        .unwrap();
+        let ctx = AppContext {
+            config,
+            workspace_root: dir.path().to_path_buf(),
+        };
+
+        run_init(
+            &ctx,
+            &InitArgs {
+                rpm: true,
+                tpk: false,
+                package: None,
+                force: false,
+            },
+        )
+        .unwrap();
+
+        let spec_path = dir.path().join("tizen/rpm/hello-multi.spec");
+        assert!(spec_path.is_file());
+        assert!(!dir.path().join("tizen/rpm/hello-server.spec").exists());
+
+        let spec = fs::read_to_string(spec_path).unwrap();
+        assert!(spec.contains("Name:           hello-multi"));
+        assert!(spec.contains("Source0:        hello-server"));
+        assert!(spec.contains("Source1:        hello-cli"));
+    }
+
+    #[test]
+    fn init_rpm_errors_when_existing_config_is_missing_package_name() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("demo/src")).unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"demo\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("demo/Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("demo/src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(
+            dir.path().join(".cargo-tizen.toml"),
+            "[default]\narch = \"aarch64\"\n\n[package]\npackages = [\"demo\"]\n",
+        )
+        .unwrap();
+
+        let config: Config = basic_toml::from_str(
+            &fs::read_to_string(dir.path().join(".cargo-tizen.toml")).unwrap(),
+        )
+        .unwrap();
+        let ctx = AppContext {
+            config,
+            workspace_root: dir.path().to_path_buf(),
+        };
+
+        let err = run_init(
+            &ctx,
+            &InitArgs {
+                rpm: true,
+                tpk: false,
+                package: None,
+                force: false,
+            },
+        )
+        .expect_err("missing [package].name should fail when generating RPM scaffold")
+        .to_string();
+
+        assert!(err.contains("missing [package].name"));
     }
 }

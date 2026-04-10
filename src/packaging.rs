@@ -26,6 +26,14 @@ impl PackagingLayout {
         &self.root
     }
 
+    /// Return the artifacts staging directory for a given architecture.
+    ///
+    /// Layout: `<packaging-root>/<arch>/`
+    #[allow(dead_code)]
+    pub fn artifacts_dir(&self, arch: crate::arch::Arch) -> PathBuf {
+        self.root.join(arch.as_str())
+    }
+
     pub fn rpm_spec_path(&self, package_name: &str) -> PathBuf {
         self.root.join("rpm").join(format!("{package_name}.spec"))
     }

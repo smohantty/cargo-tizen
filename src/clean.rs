@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
+use crate::arch::Arch;
 use crate::cli::CleanArgs;
 use crate::context::AppContext;
 use crate::output::{cargo_status, color_enabled};
@@ -30,15 +31,19 @@ pub fn run_clean(ctx: &AppContext, args: &CleanArgs) -> Result<()> {
 
 fn clean_build_outputs(ctx: &AppContext, args: &CleanArgs) -> Result<()> {
     let target_root = ctx.workspace_root.join("target");
-    if !target_root.exists() {
-        return Ok(());
-    }
-
-    let tizen_dir = target_root.join("tizen");
+    let packaging_root = ctx
+        .config
+        .packaging_dir()
+        .unwrap_or_else(|| ctx.workspace_root.join("tizen"));
     let use_color = color_enabled();
+
     if let Some(arch) = args.arch {
-        remove_if_exists(&target_root.join(arch.rust_target()))?;
-        remove_if_exists(&tizen_dir.join(arch.as_str()))?;
+        if target_root.exists() {
+            let tizen_dir = target_root.join("tizen");
+            remove_if_exists(&target_root.join(arch.rust_target()))?;
+            remove_if_exists(&tizen_dir.join(arch.as_str()))?;
+        }
+        remove_if_exists(&packaging_root.join(arch.as_str()))?;
         ctx.info(format!(
             "{} build outputs for arch {}",
             cargo_status(use_color, "Removed"),
@@ -47,9 +52,15 @@ fn clean_build_outputs(ctx: &AppContext, args: &CleanArgs) -> Result<()> {
         return Ok(());
     }
 
-    remove_if_exists(&tizen_dir)?;
+    if target_root.exists() {
+        remove_if_exists(&target_root.join("tizen"))?;
+    }
+    // Remove staged artifact arch dirs but preserve authored files (rpm/, tpk/, etc.)
+    for arch in &[Arch::Armv7l, Arch::Aarch64] {
+        remove_if_exists(&packaging_root.join(arch.as_str()))?;
+    }
     ctx.info(format!(
-        "{} target/tizen build outputs",
+        "{} target/tizen build outputs and staged artifacts",
         cargo_status(use_color, "Removed")
     ));
     Ok(())

@@ -66,7 +66,8 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
     // -- Version resolution --
     // Try root Cargo.toml first; for workspaces, fall back to member if needed
     let version = read_cargo_version(&ctx.workspace_root, &package_name)?;
-    let spec_path = packaging.rpm_spec_path(&package_name);
+    let spec_name = ctx.config.rpm_spec_name().unwrap_or(&package_name);
+    let spec_path = packaging.rpm_spec_path(spec_name);
     let spec_version = if spec_path.is_file() {
         read_spec_version(&spec_path)?
     } else {

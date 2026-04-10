@@ -145,17 +145,18 @@ Current behavior:
 - If the spec is missing, the command fails before the build starts and prints the expected path plus the `--packaging-dir` escape hatch.
 - Staging expects the built binary path `<target-dir>/<rust-target>/<profile>/<package-name>`.
 
-**Multi-package RPM:** To bundle multiple binaries from a workspace into a single RPM, set `[package].packages` in `.cargo-tizen.toml`:
+**Multi-package RPM:** To bundle multiple binaries from a workspace into a single RPM, set `[package].name` and `[package].packages` in `.cargo-tizen.toml`:
 
 ```toml
 [package]
+name = "my-project"
 packages = ["my-server", "my-cli"]
 ```
 
-- All listed packages are built and staged into `rpmbuild/SOURCES/`.
-- The spec file is looked up by the first package name in the list.
+- `name` controls the spec filename lookup (`tizen/rpm/my-project.spec`). When omitted, defaults to the first entry in `packages`.
+- `packages` lists the crates to build and stage into `rpmbuild/SOURCES/`.
 - CLI `-p` overrides to single-package mode even if `[package].packages` is set.
-- Single-crate projects need no config (auto-detected from `Cargo.toml`).
+- Single-crate projects get both fields set to the crate name by `cargo tizen init`.
 
 Examples:
 

@@ -302,7 +302,8 @@ fn build_packaging_section(ctx: &AppContext) -> Section {
     let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
     sec.ok(format!("packaging root: {}", packaging.root().display()));
 
-    let rpm_spec = packaging.rpm_spec_path(&package_name);
+    let spec_name = ctx.config.rpm_spec_name().unwrap_or(&package_name);
+    let rpm_spec = packaging.rpm_spec_path(spec_name);
     if rpm_spec.is_file() {
         sec.ok(format!("rpm spec: {}", rpm_spec.display()));
     } else {

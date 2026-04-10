@@ -54,18 +54,20 @@ Those locations are no longer loaded automatically. Move the manifest to `<packa
 ## Multi-package RPM
 
 Workspaces with multiple binary crates can bundle all binaries into a single RPM.
-Set `[package].packages` in `.cargo-tizen.toml`:
+Set `[package].name` and `[package].packages` in `.cargo-tizen.toml`:
 
 ```toml
 [package]
+name = "my-project"
 packages = ["my-server", "my-cli"]
 ```
 
-All listed packages are built and staged. The spec file is looked up by the first
-package name (`<packaging-dir>/rpm/my-server.spec`). The spec must reference all
-staged binaries as sources. CLI `-p` overrides to single-package mode.
+`name` controls the spec filename lookup (`<packaging-dir>/rpm/my-project.spec`).
+When omitted, it defaults to the first entry in `packages`. The `packages` list
+controls which crates are built and staged. The spec must reference all staged
+binaries as sources. CLI `-p` overrides to single-package mode.
 
-Single-crate projects need no config, the package name is auto-detected from `Cargo.toml`.
+Single-crate projects get both fields set to the crate name by `cargo tizen init`.
 
 ## Current gaps
 

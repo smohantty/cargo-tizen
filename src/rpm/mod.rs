@@ -24,7 +24,7 @@ pub fn run_rpm(ctx: &AppContext, args: &RpmArgs) -> Result<()> {
     let packaging = PackagingLayout::new(&ctx.workspace_root, packaging_root.as_deref());
 
     // Validate authored packaging inputs before starting a potentially expensive build.
-    let spec_name = &packages[0].name;
+    let spec_name = ctx.config.rpm_spec_name().unwrap_or(&packages[0].name);
     let spec_path = packaging.resolve_rpm_spec(spec_name)?;
     let extra_sources_dir = packaging.rpm_sources_dir()?;
 

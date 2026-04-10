@@ -5,4 +5,5 @@ profile = "mobile"
 platform_version = "10.0"
 
 [package]
+name = "hello-service"
 packages = ["hello-service"]

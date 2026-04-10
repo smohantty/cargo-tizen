@@ -142,12 +142,14 @@ list them in `.cargo-tizen.toml`:
 
 ```toml
 [package]
+name = "my-project"
 packages = ["my-server", "my-cli"]
 ```
 
-This builds and stages all listed binaries. The spec file is looked up by the first
-package name (`tizen/rpm/my-server.spec`), and packaging inputs are validated
-before the build starts. Single-crate projects need no config.
+The `name` field controls the spec filename lookup (`tizen/rpm/my-project.spec`).
+When omitted, it defaults to the first entry in `packages`. The `packages` list
+controls which crates are built and staged. Packaging inputs are validated before the
+build starts. Single-crate projects get both fields set to the crate name by `cargo tizen init`.
 
 ### Package as TPK
 
@@ -220,9 +222,10 @@ When `-A` / `--arch` is omitted, `cargo-tizen` auto-selects:
 
 `.cargo-tizen.toml` in your project root is optional. Add it only when you need overrides.
 
-In a multi-package workspace, set `[package].packages = ["member-name"]` if you want
-`rpm`, `tpk`, and `install` to package the same member by default without repeating
-`-p/--package` on every command.
+Use `[package].name` to set the packaging artifact name (controls spec filename lookup),
+and `[package].packages` to list which crates to build. In a single-crate project both
+default to the crate name. In a multi-crate workspace, set `name` to your desired RPM
+name and `packages` to the members that should be built and staged.
 
 Minimal (just point to SDK):
 
@@ -241,6 +244,7 @@ platform_version = "10.0"
 packaging_dir = "./packaging"
 
 [package]
+name = "my-app"
 packages = ["my-app"]
 
 [sdk]

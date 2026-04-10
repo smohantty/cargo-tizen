@@ -43,6 +43,7 @@ pub struct DefaultConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PackageConfig {
+    pub name: Option<String>,
     pub packages: Option<Vec<String>>,
 }
 
@@ -162,6 +163,10 @@ impl Config {
             .and_then(|packages| packages.first().map(String::as_str))
     }
 
+    pub fn rpm_spec_name(&self) -> Option<&str> {
+        self.package.name().or_else(|| self.primary_package())
+    }
+
     pub fn linker_for(&self, arch: Arch) -> String {
         self.arch
             .get(arch.as_str())
@@ -262,9 +267,16 @@ impl DefaultConfig {
 
 impl PackageConfig {
     fn merge(&mut self, other: Self) {
+        if other.name.is_some() {
+            self.name = other.name;
+        }
         if other.packages.is_some() {
             self.packages = other.packages;
         }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref().filter(|s| !s.is_empty())
     }
 
     pub fn packages(&self) -> Option<&[String]> {
@@ -411,9 +423,11 @@ mod tests {
     #[test]
     fn package_config_merge_project_replaces_user() {
         let mut base = PackageConfig {
+            name: None,
             packages: Some(vec!["old".into()]),
         };
         let other = PackageConfig {
+            name: None,
             packages: Some(vec!["new-a".into(), "new-b".into()]),
         };
         base.merge(other);
@@ -426,10 +440,62 @@ mod tests {
     #[test]
     fn package_config_merge_preserves_when_project_omits() {
         let mut base = PackageConfig {
+            name: None,
             packages: Some(vec!["keep".into()]),
         };
         let other = PackageConfig::default();
         base.merge(other);
         assert_eq!(base.packages, Some(vec!["keep".to_string()]));
+    }
+
+    #[test]
+    fn name_field_parsed_from_config() {
+        let config: Config =
+            basic_toml::from_str("[package]\nname = \"carbon\"\npackages = [\"carbon-daemon\"]\n")
+                .unwrap();
+        assert_eq!(config.package.name(), Some("carbon"));
+        assert_eq!(config.rpm_spec_name(), Some("carbon"));
+    }
+
+    #[test]
+    fn name_field_empty_treated_as_unset() {
+        let config: Config =
+            basic_toml::from_str("[package]\nname = \"\"\npackages = [\"a\"]\n").unwrap();
+        assert!(config.package.name().is_none());
+        assert_eq!(config.rpm_spec_name(), Some("a"));
+    }
+
+    #[test]
+    fn rpm_spec_name_falls_back_to_primary_package() {
+        let config: Config =
+            basic_toml::from_str("[package]\npackages = [\"first\", \"second\"]\n").unwrap();
+        assert!(config.package.name().is_none());
+        assert_eq!(config.rpm_spec_name(), Some("first"));
+    }
+
+    #[test]
+    fn name_merge_project_replaces_user() {
+        let mut base = PackageConfig {
+            name: Some("old-name".into()),
+            packages: Some(vec!["a".into()]),
+        };
+        let other = PackageConfig {
+            name: Some("new-name".into()),
+            packages: None,
+        };
+        base.merge(other);
+        assert_eq!(base.name(), Some("new-name"));
+        assert_eq!(base.packages(), Some(["a".to_string()].as_slice()));
+    }
+
+    #[test]
+    fn name_merge_preserves_when_project_omits() {
+        let mut base = PackageConfig {
+            name: Some("keep".into()),
+            packages: None,
+        };
+        let other = PackageConfig::default();
+        base.merge(other);
+        assert_eq!(base.name(), Some("keep"));
     }
 }

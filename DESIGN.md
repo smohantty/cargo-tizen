@@ -302,7 +302,8 @@ provider = "rootstrap"
 packaging_dir = "./packaging"
 
 [package]
-packages = ["crate-server", "crate-cli"]  # first entry is the default package; rpm stages all entries
+name = "my-project"                       # packaging artifact name; controls spec filename lookup
+packages = ["crate-server", "crate-cli"]  # crates to build and stage; first entry is the default package
 
 [arch.armv7l]
 rust_target = "armv7-unknown-linux-gnueabi"

@@ -143,6 +143,7 @@ mod tests {
 
     const RPM_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-app";
     const RPM_SERVICE_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-service-app";
+    const RPM_MULTI_REFERENCE_PROJECT: &str = "templates/reference-projects/rpm-multi-package";
 
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -213,6 +214,18 @@ mod tests {
             .rpm_sources_dir()
             .expect("absent sources dir should not error");
         assert!(sources.is_none());
+    }
+
+    #[test]
+    fn rpm_multi_package_resolves_spec_by_name() {
+        let workspace = repo_root().join(RPM_MULTI_REFERENCE_PROJECT);
+        let layout = PackagingLayout::new(&workspace, None);
+        // The multi-package project uses name = "hello-multi" in .cargo-tizen.toml,
+        // so the spec file should be hello-multi.spec (not hello-server.spec).
+        let spec = layout
+            .resolve_rpm_spec("hello-multi")
+            .expect("multi-package project should resolve spec by name field");
+        assert_eq!(spec, workspace.join("tizen/rpm/hello-multi.spec"));
     }
 
     #[test]

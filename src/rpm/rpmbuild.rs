@@ -87,23 +87,29 @@ pub fn build_rpm(
             .with_context(|| format!("failed to create rpmbuild directory {}", dir))?;
     }
 
-    // Clean SOURCES dir to remove stale files from previous runs
-    let sources_dir = topdir.join("SOURCES");
-    for entry in fs::read_dir(&sources_dir)
-        .with_context(|| format!("failed to read SOURCES dir {}", sources_dir.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            fs::remove_dir_all(&path).with_context(|| {
-                format!("failed to clean stale SOURCES entry {}", path.display())
-            })?;
-        } else {
-            fs::remove_file(&path).with_context(|| {
-                format!("failed to clean stale SOURCES file {}", path.display())
-            })?;
+    // Clean SOURCES and RPMS dirs to remove stale files from previous runs.
+    // Without this, old-version RPMs accumulate and get reported/uploaded
+    // alongside the current build.
+    for subdir in ["SOURCES", "RPMS"] {
+        let dir = topdir.join(subdir);
+        for entry in fs::read_dir(&dir)
+            .with_context(|| format!("failed to read {} dir {}", subdir, dir.display()))?
+        {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                fs::remove_dir_all(&path).with_context(|| {
+                    format!("failed to clean stale {} entry {}", subdir, path.display())
+                })?;
+            } else {
+                fs::remove_file(&path).with_context(|| {
+                    format!("failed to clean stale {} file {}", subdir, path.display())
+                })?;
+            }
         }
     }
+
+    let sources_dir = topdir.join("SOURCES");
 
     for staged in staged_binaries {
         let binary_name = staged

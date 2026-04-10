@@ -135,11 +135,15 @@ Examples:
   cargo tizen gh-release --dry-run
   cargo tizen gh-release --yes -A aarch64
   cargo tizen gh-release --no-stage --draft
+  cargo tizen gh-release --bump patch
+  cargo tizen gh-release --bump minor --yes
 
 Notes:
   gh-release always shows a plan and asks for confirmation before executing.
   Use --yes to skip confirmation (for scripts/CI).
   Use --dry-run to see the plan without executing.
+  Use --bump major|minor|patch to auto-increment the version before releasing.
+  Use --force-tag to re-tag an existing version without prompting.
   Requires gh CLI (https://cli.github.com) to be installed and authenticated.";
 
 #[derive(Debug, Parser)]
@@ -518,6 +522,13 @@ pub struct ConfigArgs {
     pub show: bool,
 }
 
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum BumpLevel {
+    Major,
+    Minor,
+    Patch,
+}
+
 #[derive(Debug, Clone, Args)]
 pub struct GhReleaseArgs {
     #[arg(
@@ -534,6 +545,13 @@ pub struct GhReleaseArgs {
         help = "Target architectures to release (default: armv7l aarch64)"
     )]
     pub arch: Vec<Arch>,
+
+    #[arg(
+        long,
+        value_name = "LEVEL",
+        help = "Bump version before releasing (major, minor, or patch)"
+    )]
+    pub bump: Option<BumpLevel>,
 
     #[arg(long, help = "Git remote (default: origin)")]
     pub remote: Option<String>,

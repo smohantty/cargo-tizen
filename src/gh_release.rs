@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 use crate::arch::Arch;
-use crate::cli::GhReleaseArgs;
+use crate::cli::{BumpLevel, GhReleaseArgs};
 use crate::context::AppContext;
 use crate::output::{cargo_status, color_enabled};
 use crate::packaging::PackagingLayout;
@@ -42,6 +42,8 @@ struct ReleasePlan {
     notes_command: Option<String>,
     workspace_root: PathBuf,
     packaging_root: PathBuf,
+    version_bumped: bool,
+    cargo_toml_path: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -63,31 +65,55 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
     let packaging =
         PackagingLayout::new(&ctx.workspace_root, ctx.config.packaging_dir().as_deref());
 
-    // -- Version resolution --
-    // Try root Cargo.toml first; for workspaces, fall back to member if needed
-    let version = read_cargo_version(&ctx.workspace_root, &package_name)?;
-    let spec_name = ctx.config.rpm_spec_name().unwrap_or(&package_name);
-    let spec_path = packaging.rpm_spec_path(spec_name);
-    let spec_version = if spec_path.is_file() {
-        read_spec_version(&spec_path)?
+    // -- Version bump (optional) --
+    let mut version_bumped = false;
+    let mut cargo_toml_path: Option<PathBuf> = None;
+    let version = if let Some(level) = args.bump {
+        let (toml_path, current_version) =
+            resolve_cargo_version_path(&ctx.workspace_root, &package_name)?;
+        let new_version = bump_version(&current_version, level)?;
+        if !args.dry_run {
+            update_cargo_toml_version(&toml_path, &current_version, &new_version)?;
+            cargo_toml_path = Some(toml_path);
+            version_bumped = true;
+
+            let use_color = color_enabled();
+            ctx.info(format!(
+                "{} {} -> {}",
+                cargo_status(use_color, "Bumped"),
+                current_version,
+                new_version
+            ));
+        }
+        new_version
     } else {
-        None
+        read_cargo_version(&ctx.workspace_root, &package_name)?
     };
 
+    // -- Spec version sync --
+    let spec_name = ctx.config.rpm_spec_name().unwrap_or(&package_name);
+    let spec_path = packaging.rpm_spec_path(spec_name);
     let mut spec_synced = false;
-    if let Some(ref sv) = spec_version {
-        if sv != &version {
-            if args.sync_spec_version || resolved.sync_spec_version || args.yes {
-                sync_spec_version(&spec_path, &version)?;
-                spec_synced = true;
-            } else {
-                let prompt = format!(
-                    "Cargo.toml version is {} but spec says {}. Update spec to match?",
-                    version, sv
-                );
-                if prompt_yn(&prompt, true) {
+    if spec_path.is_file() {
+        let spec_version = read_spec_version(&spec_path)?;
+        if let Some(ref sv) = spec_version {
+            if sv != &version {
+                if version_bumped
+                    || args.sync_spec_version
+                    || resolved.sync_spec_version
+                    || args.yes
+                {
                     sync_spec_version(&spec_path, &version)?;
                     spec_synced = true;
+                } else {
+                    let prompt = format!(
+                        "Cargo.toml version is {} but spec says {}. Update spec to match?",
+                        version, sv
+                    );
+                    if prompt_yn(&prompt, true) {
+                        sync_spec_version(&spec_path, &version)?;
+                        spec_synced = true;
+                    }
                 }
             }
         }
@@ -96,6 +122,17 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
     // -- Tag resolution --
     let tag = format_tag(&resolved.tag_format, &version);
     let tag_exists = check_tag_exists(&tag);
+
+    // -- Force-tag gating --
+    if tag_exists && !args.force_tag {
+        if args.yes {
+            bail!("tag {} already exists — use --force-tag to re-tag", tag);
+        }
+        let prompt = format!("Tag {} already exists. Force-move it to HEAD?", tag);
+        if !prompt_yn(&prompt, false) {
+            bail!("aborted: tag {} already exists", tag);
+        }
+    }
 
     // -- Build plan --
     let plan = ReleasePlan {
@@ -111,6 +148,8 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         notes_command: ctx.config.gh_release.notes_command.clone(),
         workspace_root: ctx.workspace_root.clone(),
         packaging_root: packaging.root().to_path_buf(),
+        version_bumped,
+        cargo_toml_path,
     };
 
     // -- Print plan (always, like an implicit dry-run) --
@@ -185,9 +224,15 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         all_assets.push(sidecar);
     }
 
-    // Step 7: Commit staged RPMs (and spec if synced)
+    // Step 7: Commit version bump, staged RPMs, and spec changes
     {
         let mut paths_to_add: Vec<String> = Vec::new();
+        if let Some(ref toml_path) = plan.cargo_toml_path {
+            let toml_rel = toml_path
+                .strip_prefix(&plan.workspace_root)
+                .unwrap_or(toml_path);
+            paths_to_add.push(toml_rel.to_string_lossy().to_string());
+        }
         if !plan.no_stage {
             let sources_dir = plan.packaging_root.join("rpm").join("sources");
             let sources_rel = sources_dir
@@ -390,7 +435,10 @@ fn default_package_name(workspace_root: &Path) -> String {
     parsed.package.and_then(|p| p.name).unwrap_or_default()
 }
 
-fn read_cargo_version(workspace_root: &Path, package_name: &str) -> Result<String> {
+fn resolve_cargo_version_path(
+    workspace_root: &Path,
+    package_name: &str,
+) -> Result<(PathBuf, String)> {
     let toml_path = workspace_root.join("Cargo.toml");
     let raw = fs::read_to_string(&toml_path)
         .with_context(|| format!("failed to read {}", toml_path.display()))?;
@@ -400,14 +448,14 @@ fn read_cargo_version(workspace_root: &Path, package_name: &str) -> Result<Strin
     // Try [package].version first
     if let Some(ref pkg) = parsed.package {
         if let Some(ref v) = pkg.version {
-            return Ok(v.clone());
+            return Ok((toml_path, v.clone()));
         }
     }
     // Then [workspace.package].version
     if let Some(ref ws) = parsed.workspace {
         if let Some(ref pkg) = ws.package {
             if let Some(ref v) = pkg.version {
-                return Ok(v.clone());
+                return Ok((toml_path, v.clone()));
             }
         }
     }
@@ -421,7 +469,7 @@ fn read_cargo_version(workspace_root: &Path, package_name: &str) -> Result<Strin
             .with_context(|| format!("failed to parse {}", member_toml.display()))?;
         if let Some(ref pkg) = parsed.package {
             if let Some(ref v) = pkg.version {
-                return Ok(v.clone());
+                return Ok((member_toml, v.clone()));
             }
         }
     }
@@ -434,6 +482,89 @@ fn read_cargo_version(workspace_root: &Path, package_name: &str) -> Result<Strin
         toml_path.display(),
         member_toml.display()
     )
+}
+
+fn read_cargo_version(workspace_root: &Path, package_name: &str) -> Result<String> {
+    resolve_cargo_version_path(workspace_root, package_name).map(|(_, v)| v)
+}
+
+fn bump_version(current: &str, level: BumpLevel) -> Result<String> {
+    let parts: Vec<&str> = current.split('.').collect();
+    if parts.len() != 3 {
+        bail!(
+            "version '{}' is not valid semver (expected MAJOR.MINOR.PATCH)",
+            current
+        );
+    }
+    let major: u64 = parts[0]
+        .parse()
+        .with_context(|| format!("invalid major version: {}", parts[0]))?;
+    let minor: u64 = parts[1]
+        .parse()
+        .with_context(|| format!("invalid minor version: {}", parts[1]))?;
+    let patch: u64 = parts[2]
+        .parse()
+        .with_context(|| format!("invalid patch version: {}", parts[2]))?;
+
+    let (m, n, p) = match level {
+        BumpLevel::Major => (major + 1, 0, 0),
+        BumpLevel::Minor => (major, minor + 1, 0),
+        BumpLevel::Patch => (major, minor, patch + 1),
+    };
+
+    Ok(format!("{}.{}.{}", m, n, p))
+}
+
+fn update_cargo_toml_version(toml_path: &Path, old_version: &str, new_version: &str) -> Result<()> {
+    let content = fs::read_to_string(toml_path)
+        .with_context(|| format!("failed to read {}", toml_path.display()))?;
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut in_target_section = false;
+    let mut updated = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Track section headers
+        if trimmed.starts_with('[') {
+            in_target_section = trimmed == "[package]" || trimmed == "[workspace.package]";
+        }
+
+        if in_target_section && !updated {
+            if let Some(rest) = trimmed.strip_prefix("version") {
+                let rest = rest.trim_start();
+                if let Some(rest) = rest.strip_prefix('=') {
+                    let rest = rest.trim();
+                    if rest.starts_with('"') && rest.contains(old_version) {
+                        let indent = &line[..line.len() - line.trim_start().len()];
+                        lines.push(format!("{}version = \"{}\"", indent, new_version));
+                        updated = true;
+                        continue;
+                    }
+                }
+            }
+        }
+
+        lines.push(line.to_string());
+    }
+
+    if !updated {
+        bail!(
+            "could not find version = \"{}\" in {} under [package] or [workspace.package]",
+            old_version,
+            toml_path.display()
+        );
+    }
+
+    let mut output = lines.join("\n");
+    if content.ends_with('\n') {
+        output.push('\n');
+    }
+    fs::write(toml_path, output)
+        .with_context(|| format!("failed to write {}", toml_path.display()))?;
+
+    Ok(())
 }
 
 fn read_spec_version(spec_path: &Path) -> Result<Option<String>> {
@@ -501,6 +632,9 @@ fn print_plan(plan: &ReleasePlan, spec_synced: bool, tag_exists: bool) {
         plan.package_name,
         plan.tag
     );
+    if plan.version_bumped {
+        println!("     Bump:    version -> {}", plan.version);
+    }
     let arch_list: Vec<&str> = plan.arches.iter().map(|a| a.as_str()).collect();
     println!("     Build:   {} (release)", arch_list.join(", "));
     for arch in &plan.arches {
@@ -748,7 +882,14 @@ fn git_commit(plan: &ReleasePlan, paths: &[String]) -> Result<()> {
         }
     }
 
-    let message = format!("Update release artifacts for {}", plan.tag);
+    let message = if plan.version_bumped {
+        format!(
+            "Bump version to {} and update release artifacts for {}",
+            plan.version, plan.tag
+        )
+    } else {
+        format!("Update release artifacts for {}", plan.tag)
+    };
     let status = Command::new("git")
         .args(["commit", "-m", &message])
         .current_dir(&plan.workspace_root)
@@ -1111,6 +1252,7 @@ mod tests {
         let args = GhReleaseArgs {
             package: None,
             arch: vec![],
+            bump: None,
             remote: None,
             tag_format: None,
             branch: None,
@@ -1131,6 +1273,7 @@ mod tests {
         let args = GhReleaseArgs {
             package: None,
             arch: vec![],
+            bump: None,
             remote: None,
             tag_format: None,
             branch: None,
@@ -1194,5 +1337,77 @@ mod tests {
         )
         .unwrap();
         assert_eq!(default_package_name(dir.path()), "");
+    }
+
+    #[test]
+    fn bump_version_patch() {
+        assert_eq!(bump_version("1.2.3", BumpLevel::Patch).unwrap(), "1.2.4");
+    }
+
+    #[test]
+    fn bump_version_minor() {
+        assert_eq!(bump_version("1.2.3", BumpLevel::Minor).unwrap(), "1.3.0");
+    }
+
+    #[test]
+    fn bump_version_major() {
+        assert_eq!(bump_version("1.2.3", BumpLevel::Major).unwrap(), "2.0.0");
+    }
+
+    #[test]
+    fn bump_version_invalid() {
+        assert!(bump_version("not-a-version", BumpLevel::Patch).is_err());
+    }
+
+    #[test]
+    fn update_cargo_toml_version_in_package() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = dir.path().join("Cargo.toml");
+        fs::write(&toml, "[package]\nname = \"test\"\nversion = \"1.2.3\"\n").unwrap();
+        update_cargo_toml_version(&toml, "1.2.3", "1.3.0").unwrap();
+        let content = fs::read_to_string(&toml).unwrap();
+        assert!(content.contains("version = \"1.3.0\""));
+        assert!(!content.contains("1.2.3"));
+    }
+
+    #[test]
+    fn update_cargo_toml_version_in_workspace() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = dir.path().join("Cargo.toml");
+        fs::write(
+            &toml,
+            "[workspace]\nmembers = [\"a\"]\n\n[workspace.package]\nversion = \"0.5.0\"\n",
+        )
+        .unwrap();
+        update_cargo_toml_version(&toml, "0.5.0", "0.6.0").unwrap();
+        let content = fs::read_to_string(&toml).unwrap();
+        assert!(content.contains("version = \"0.6.0\""));
+        assert!(!content.contains("0.5.0"));
+    }
+
+    #[test]
+    fn update_cargo_toml_version_preserves_formatting() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = dir.path().join("Cargo.toml");
+        let original = "[package]\nname = \"test\"\nversion = \"1.0.0\"\nedition = \"2021\"\n";
+        fs::write(&toml, original).unwrap();
+        update_cargo_toml_version(&toml, "1.0.0", "1.1.0").unwrap();
+        let content = fs::read_to_string(&toml).unwrap();
+        assert!(content.contains("name = \"test\""));
+        assert!(content.contains("edition = \"2021\""));
+        assert!(content.contains("version = \"1.1.0\""));
+    }
+
+    #[test]
+    fn resolve_cargo_version_path_returns_correct_file() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"test\"\nversion = \"2.0.0\"\n",
+        )
+        .unwrap();
+        let (path, version) = resolve_cargo_version_path(dir.path(), "test").unwrap();
+        assert_eq!(path, dir.path().join("Cargo.toml"));
+        assert_eq!(version, "2.0.0");
     }
 }

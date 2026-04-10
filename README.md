@@ -2,14 +2,21 @@
 
 A Cargo subcommand for cross-building Rust projects for Tizen and packaging them as RPM or TPK.
 
-```
+```bash
 cargo tizen build -A armv7l --release
 cargo tizen rpm -A armv7l --release
 cargo tizen tpk -A armv7l --release
-cargo tizen install -A armv7l --release
+cargo tizen install -A armv7l --release   # TPK only
+cargo tizen gh-release --dry-run          # RPM GitHub release pipeline
 ```
 
 **New to cargo-tizen?** Start with the [Getting Started guide](doc/getting-started.md).
+
+## What to expect
+
+- Package-manager commands below assume a Linux host, which is the documented setup path in this repo. See [doc/linux-install.md](doc/linux-install.md) for the full host setup guide.
+- `cargo tizen setup` is optional for normal use. `build`, `rpm`, `tpk`, and `install` prepare sysroots automatically when needed.
+- `cargo tizen install` installs TPK packages only.
 
 ## Install
 
@@ -27,30 +34,46 @@ Verify:
 cargo tizen --help
 ```
 
-The built-in help is intended to be the fastest onboarding path:
+Built-in help is the fastest reference when you already know which command you want:
 
 ```bash
 cargo tizen --help
 cargo tizen <command> --help
 ```
 
-Each command help page includes plain-language descriptions, notes, and examples.
-
 ## Prerequisites
 
-### 1. Rust cross-compilation targets
+### 1. Tizen SDK and rootstraps
+
+Install [Tizen Studio](https://developer.tizen.org/development/tizen-studio/download), then install rootstrap packages for the profile and platform version you want to target through the SDK Package Manager.
+
+`cargo-tizen` looks for the SDK in this order:
+
+1. `[sdk].root` in `.cargo-tizen.toml`
+2. `TIZEN_SDK`
+3. parent directory of `sdb` on `PATH`
+4. standard install locations such as `~/tizen-studio`
+
+If auto-detection fails, either set `[sdk].root` / `TIZEN_SDK`, or run:
+
+```bash
+cargo tizen setup --sdk-root /path/to/tizen-studio
+```
+
+`--sdk-root` is a `setup` flag, not a global flag.
+
+### 2. Rust target triples
 
 ```bash
 rustup target add armv7-unknown-linux-gnueabi armv7-unknown-linux-gnueabihf aarch64-unknown-linux-gnu
 ```
 
-For `armv7l`, install both ARM Rust targets. With the default rootstrap provider, `cargo-tizen`
-inspects the selected rootstrap headers and uses:
+For `armv7l`, install both ARM Rust targets. With the default rootstrap provider, `cargo-tizen` inspects the selected sysroot headers and chooses:
 
 - `armv7-unknown-linux-gnueabi` when the sysroot exposes `stubs-soft.h`
 - `armv7-unknown-linux-gnueabihf` when the sysroot exposes `stubs-hard.h`
 
-### 2. C cross-compilers (linkers)
+### 3. Cross linkers
 
 | Target arch | apt package | Linker binary |
 |-------------|-------------|---------------|
@@ -61,23 +84,9 @@ inspects the selected rootstrap headers and uses:
 sudo apt install gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu
 ```
 
-### 3. Tizen SDK
+`cargo-tizen` already defaults to `arm-linux-gnueabi-gcc` for `armv7l` and `aarch64-linux-gnu-gcc` for `aarch64`. Add `[arch.*].linker` in `.cargo-tizen.toml` only when you need a different binary name or an explicit path.
 
-Install [Tizen Studio](https://developer.tizen.org/development/tizen-studio/download).
-
-Then install rootstrap packages for your target profile and platform version through the SDK Package Manager.
-
-`cargo-tizen` finds the SDK automatically from:
-
-1. `[sdk].root` in `.cargo-tizen.toml`
-2. `TIZEN_SDK` environment variable
-3. Parent directory of `sdb` on `PATH`
-4. Default locations (`~/tizen-studio`, `~/.tizen-extension-platform/...`)
-
-If auto-detection fails, either set `[sdk].root` / `TIZEN_SDK`, or run `cargo tizen setup --sdk-root /path/to/sdk`
-to override the SDK location while preparing the sysroot cache. `--sdk-root` is a `setup` flag, not a global flag.
-
-### 4. rpmbuild (only for RPM packaging)
+### 4. RPM tooling (RPM workflow only)
 
 ```bash
 # Debian/Ubuntu
@@ -90,55 +99,59 @@ sudo dnf install rpm-build
 sudo pacman -S rpm-tools
 ```
 
-### Verify everything
+## Verify your environment
 
 ```bash
 cargo tizen doctor
-```
-
-This checks all tools, SDK, rootstraps, linkers, Rust targets, and sysroot cache. To repair missing Rust targets and
-sysroots:
-
-```bash
 cargo tizen fix
 ```
 
-`cargo tizen fix` can install missing Rust targets and prepare missing sysroots. `cargo tizen doctor` also reports
-whether the current project has the expected RPM spec and TPK manifest layout. The report stays concise and highlights
-warnings and errors. If `doctor` reports a missing SDK, missing linker, or other host-tool issue, fix that manually and
-rerun `cargo tizen doctor`.
+`doctor` checks the SDK, rootstraps, Rust targets, linkers, packaging layout, and sysroot cache. By default it checks both supported architectures; use `-A` to check only one.
 
-## Quick Start
+`fix` installs missing Rust targets and prepares missing sysroots. It does not install host packages such as cross linkers, `rpmbuild`, or Tizen Studio.
 
-RPM, TPK, and `install` currently assume the built binary lives at
-`<target-dir>/<rust-target>/<debug|release>/<package-name>`. Projects with a custom `[[bin]]` name or multiple
-binaries should make sure the packaged binary name matches `[package].name` in `Cargo.toml`.
+## Common workflows
 
-### Scaffold starter files
+### 1. Create project config and packaging scaffolds
 
 ```bash
 cargo tizen init
 ```
 
-This creates starter RPM spec and TPK manifest files when they are missing. It only writes `.cargo-tizen.toml` when it
-is missing. Use `cargo tizen init --rpm` or `cargo tizen init --tpk` to add packaging scaffolds. Existing packaging
-files are left untouched unless you rerun with `--force`.
+With no format flags, `init` creates `.cargo-tizen.toml` only.
 
-### Cross-build
+To create starter packaging files:
+
+```bash
+cargo tizen init --rpm
+cargo tizen init --tpk
+cargo tizen init --rpm --tpk
+```
+
+Existing packaging files are left untouched unless you pass `--force`.
+
+### 2. Cross-build
 
 ```bash
 cargo tizen build -A armv7l
 cargo tizen build -A aarch64 --release
 ```
 
-### Package as RPM
+### 3. Package as RPM
+
+Initialize the scaffold once:
+
+```bash
+cargo tizen init --rpm
+```
+
+Then edit `tizen/rpm/<package-name>.spec` for your app and build the RPM:
 
 ```bash
 cargo tizen rpm -A armv7l --release
 ```
 
-For workspaces with multiple binary crates that should be packaged into a single RPM,
-list them in `.cargo-tizen.toml`:
+For workspaces with multiple binary crates that should be staged into one RPM, set `.cargo-tizen.toml`:
 
 ```toml
 [package]
@@ -146,64 +159,82 @@ name = "my-project"
 packages = ["my-server", "my-cli"]
 ```
 
-The `name` field controls the spec filename lookup (`tizen/rpm/my-project.spec`).
-When omitted, it defaults to the first entry in `packages`. The `packages` list
-controls which crates are built and staged. Packaging inputs are validated before the
-build starts. Single-crate projects get both fields set to the crate name by `cargo tizen init`.
+`name` controls spec lookup (`tizen/rpm/my-project.spec`). `packages` controls which crates are built and staged.
 
-### Publish a GitHub release
+### 4. Package as TPK and install on a device
+
+Initialize the scaffold once:
+
+```bash
+cargo tizen init --tpk
+```
+
+Edit `tizen/tpk/tizen-manifest.xml`, then package:
+
+```bash
+cargo tizen tpk -A armv7l --release
+```
+
+TPK packaging uses Tizen Studio certificate profiles. You can select one per command:
+
+```bash
+cargo tizen tpk -A armv7l --release --sign my_profile
+```
+
+Or store a default profile for future `tpk` and `install` commands:
+
+```bash
+cargo tizen config --sign my_profile
+```
+
+If neither `--sign` nor stored config is set, `cargo-tizen` falls back to the Tizen CLI's default profile selection.
+
+To install on a connected device:
+
+```bash
+cargo tizen devices
+cargo tizen install -A armv7l --release
+```
+
+If multiple devices are connected, pass `-d <device-id>`.
+
+For Samsung TVs, create a Samsung certificate profile in Tizen Studio Certificate Manager and include the TV DUID from `sdb capability | grep duid`.
+
+### 5. Publish a GitHub RPM release
+
+`gh-release` is an RPM release pipeline. It does not publish TPK releases.
+
+Before using it, make sure:
+
+- your working tree is clean
+- you are on branch `main`
+- your Git remote is `origin`
+- `gh` is installed and authenticated
+- `.cargo-tizen.toml` defines `[package].name` and `[package].packages`
 
 ```bash
 cargo tizen gh-release --dry-run
 cargo tizen gh-release --bump patch
 ```
 
-`gh-release` is a fixed release-phase pipeline. It reads release inputs from `.cargo-tizen.toml`,
-builds the configured packages, packages RPMs, stages them into `tizen/rpm/sources`, syncs the
-spec `Version:` field, tags `v<version>`, and creates or updates the GitHub release with RPM and
-SHA256 assets.
+`gh-release` builds the configured packages, packages RPMs, stages them into `<packaging-dir>/rpm/sources`, syncs the spec `Version:` field, commits the release artifacts, tags `v<version>` by default, pushes, and creates or updates the GitHub release with RPM and SHA256 assets. Use `--dry-run` to preview the full plan first.
 
-For `gh-release`, `.cargo-tizen.toml` must define:
+Optional release defaults live under `[release]`:
 
 ```toml
-[package]
-name = "my-app"
-packages = ["my-app"]
+[release]
+arches = ["armv7l", "aarch64"]
+tag_format = "v{version}"
 ```
 
-Optional release arches can be set in `[release]`. When omitted, `gh-release` publishes both
-`armv7l` and `aarch64`. Tag format defaults to `v{version}` and can be overridden with
-`[release].tag_format` for fork-specific release namespaces. Default release notes are commit
-subjects from the previous matching release tag to `HEAD`. Use `--dry-run` to preview the full
-plan before pushing.
-
-### Package as TPK
-
-```bash
-cargo tizen tpk -A armv7l --release
-```
-
-This expects an authored manifest at `tizen/tpk/tizen-manifest.xml` and fails
-before the build starts if the manifest is missing.
-
-### Install to device
-
-```bash
-# List connected devices
-cargo tizen devices
-
-# Build, package, and install on device
-cargo tizen install -A armv7l --release
-```
-
-## Packaging Layout
+## Packaging layout
 
 By default, packaging files live under `tizen/`:
 
 ```text
 tizen/
   rpm/
-    <cargo-package-name>.spec
+    <package-name>.spec
     sources/                          # optional extra sources for rpmbuild
   tpk/
     tizen-manifest.xml
@@ -211,14 +242,11 @@ tizen/
     extra/
 ```
 
-Files in `rpm/sources/` are copied into `rpmbuild/SOURCES/` so your spec can
-reference them as `Source1:`, `Source2:`, etc. Useful for systemd units, env files,
-and configs. See `templates/reference-projects/rpm-service-app/` for a working example.
+Files in `rpm/sources/` are copied into `rpmbuild/SOURCES/`, so your spec can reference them as `Source1:`, `Source2:`, and so on. See `templates/reference-projects/rpm-service-app/` for a working example.
 
-Use `cargo tizen init` to create starter packaging files. The packaging commands themselves do not auto-generate missing
-spec or manifest files on demand.
+The packaging commands do not create missing spec or manifest files on demand. Use `cargo tizen init --rpm` and/or `cargo tizen init --tpk` first.
 
-For a non-standard layout, point commands at a different packaging root:
+For a non-standard layout:
 
 ```bash
 cargo tizen rpm --packaging-dir ./packaging
@@ -226,102 +254,70 @@ cargo tizen tpk --packaging-dir ./packaging
 cargo tizen install --packaging-dir ./packaging
 ```
 
-You can persist that root in `.cargo-tizen.toml`:
+Or persist it in `.cargo-tizen.toml`:
 
 ```toml
 [default]
 packaging_dir = "./packaging"
 ```
 
-See [doc/packaging-layout.md](doc/packaging-layout.md) for the full layout contract and migration notes.
+See [doc/packaging-layout.md](doc/packaging-layout.md) for the full layout contract.
 
-## Architecture Selection
+## Configuration
 
-When `-A` / `--arch` is omitted, `cargo-tizen` auto-selects:
+`.cargo-tizen.toml` is optional. `cargo tizen init` creates one with defaults, but most users only need a small subset of settings.
 
-1. `[default].arch` from `.cargo-tizen.toml`
-2. The only configured `[arch.*]` entry (if exactly one)
-3. The architecture of the only connected Tizen device
-4. Otherwise, the command fails and asks you to pass `-A`
+Common cases:
 
-## Project Configuration
-
-`.cargo-tizen.toml` in your project root is optional. Add it only when you need overrides.
-
-Use `[package].name` to set the packaging artifact name (controls spec filename lookup),
-and `[package].packages` to list which crates to build. In a single-crate project both
-default to the crate name. In a multi-crate workspace, set `name` to your desired RPM
-name and `packages` to the members that should be built and staged.
-
-Use `[release].arches` to choose which architectures `cargo tizen gh-release` publishes. Use
-`[release].tag_format` when your repo needs a tag namespace other than `v{version}`.
-
-Minimal (just point to SDK):
+Point to a specific SDK:
 
 ```toml
 [sdk]
 root = "/path/to/tizen-studio"
 ```
 
-Full example:
+Choose which workspace packages are packaged:
+
+```toml
+[package]
+name = "my-app"
+packages = ["my-app"]
+```
+
+Set a default architecture or packaging directory:
 
 ```toml
 [default]
 arch = "armv7l"
-profile = "mobile"
-platform_version = "10.0"
 packaging_dir = "./packaging"
-
-[package]
-name = "my-app"
-packages = ["my-app"]
-
-[release]
-arches = ["armv7l", "aarch64"]
-tag_format = "enterprise-v{version}"
-
-[sdk]
-root = "/path/to/tizen-studio"
-
-[arch.armv7l]
-linker = "arm-linux-gnueabi-gcc"
-
-[arch.aarch64]
-linker = "aarch64-linux-gnu-gcc"
 ```
 
-## Packaging Limitations
+Useful advanced notes:
 
-- The packaged binary name must match `[package].name` in `Cargo.toml`.
-- Multi-bin and custom `[[bin]]` names are not yet supported.
-- Multi-package workspaces must pick a member with `-p/--package` or `[package].packages` in `.cargo-tizen.toml`.
-- `cargo tizen install` deploys TPK only (not RPM).
+- `profile` and `platform_version` are only worth pinning when your SDK has multiple valid installed rootstrap combinations and you want deterministic selection.
+- `[arch.armv7l].linker` and `[arch.aarch64].linker` are overrides. You do not need them when the default linker names already exist on `PATH`.
+- `cargo tizen config --sign <profile>` stores a user-level default TPK signing profile in `~/.config/cargo-tizen/config.toml`.
 
-## TPK Signing
+## Architecture selection
 
-TPK packages must be signed to install on Tizen devices.
+When `-A` / `--arch` is omitted, `cargo-tizen` auto-selects:
 
-### 1. Create a security profile
+1. `[default].arch` from `.cargo-tizen.toml`
+2. the only configured `[arch.*]` entry, if exactly one exists
+3. the architecture of the only connected ready Tizen device
+4. otherwise, the command fails and asks you to pass `-A`
 
-Open Tizen Studio **Tools > Certificate Manager** and create a certificate profile. For development, use the default Tizen distributor certificate.
+## Current limitations
 
-### 2. Set a default signing profile
-
-```bash
-cargo tizen config --sign my_profile
-```
-
-This is stored in `~/.config/cargo-tizen/config.toml` and used automatically by `tpk` and `install`. Override per-command with `--sign <profile>`.
-
-### 3. Samsung TV devices
-
-For Samsung TVs, create a **Samsung** type profile in Certificate Manager with your TV's DUID (from `sdb capability | grep duid`).
+- Custom `[[bin]]` names and multi-bin crates are not supported yet. `cargo-tizen` expects the packaged binary filename to match the selected package name.
+- Multi-package workspaces must use `-p/--package` or `[package].packages` when package selection is ambiguous.
+- `cargo tizen install` deploys TPK only.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `cargo tizen init` | Create starter config and packaging files for the current project |
+| `cargo tizen init` | Create project config and optional packaging scaffolds |
 | `cargo tizen doctor` | Check SDK, toolchain, sysroot, and packaging readiness |
 | `cargo tizen fix` | Install missing Rust targets and prepare missing sysroots |
 | `cargo tizen build` | Cross-build the current Rust project for a Tizen target |
@@ -329,28 +325,31 @@ For Samsung TVs, create a **Samsung** type profile in Certificate Manager with y
 | `cargo tizen tpk` | Package the project as a signed TPK using the Tizen CLI |
 | `cargo tizen install` | Build or reuse a TPK and install it on a connected device |
 | `cargo tizen devices` | List connected Tizen devices discovered via `sdb` |
-| `cargo tizen setup` | Prepare and cache a Tizen sysroot for cross-compilation |
+| `cargo tizen setup` | Prepare and cache a Tizen sysroot |
 | `cargo tizen clean` | Remove build outputs and/or cached sysroots |
-| `cargo tizen config` | View or update persistent `cargo-tizen` settings |
+| `cargo tizen config` | View or update persistent user settings |
+| `cargo tizen gh-release` | Build RPMs and publish a GitHub release |
 
 See [doc/commands.md](doc/commands.md) for full flag reference.
 
 ## Troubleshooting
 
-**Doctor says SDK is missing:**
-Install Tizen SDK, set `TIZEN_SDK` or `[sdk].root`, or rerun `cargo tizen setup --sdk-root /path/to/tizen-studio`,
-then rerun `cargo tizen doctor`.
+**SDK is missing**
+Install Tizen Studio, set `TIZEN_SDK` or `[sdk].root`, then rerun `cargo tizen doctor`.
 
-**Setup fails with rootstrap missing:**
-Install matching rootstrap packages in Tizen SDK Package Manager for your target profile and platform version.
+**Rootstrap is missing**
+Install matching rootstrap packages in Tizen Studio Package Manager for your target profile and platform version.
 
-**Build fails with "compiler is unusable":**
-Your cross-compiler has broken include paths. Configure `[arch.<arch>].linker` / `[arch.<arch>].cc` in `.cargo-tizen.toml` to a working toolchain path.
+**Linker is missing or unusable**
+Install the matching cross compiler, or set `[arch.<arch>].linker` to the correct binary path.
 
-**No device found:**
-Check `sdb devices` shows your target as `device`. For network devices: `sdb connect <ip:port>`.
+**No device found**
+Check `sdb devices` shows the target as `device`. For network targets, run `sdb connect <ip:port>`.
 
-## Further Documentation
+**`gh-release` fails before doing work**
+Check for a clean working tree, branch `main`, remote `origin`, and a logged-in `gh` CLI.
+
+## Further documentation
 
 - [Getting started](doc/getting-started.md)
 - [Quick reference](doc/quick-reference.md)

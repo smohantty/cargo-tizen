@@ -198,7 +198,7 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         )?;
 
         let rpm_arch = ctx.config.rpm_build_arch_for(arch);
-        let mut rpms = collect_rpm_artifacts(&plan.workspace_root, arch, &rpm_arch)?;
+        let mut rpms = collect_rpm_artifacts(&plan.workspace_root, arch, &rpm_arch, &plan.version)?;
         all_rpms.append(&mut rpms);
     }
 
@@ -232,6 +232,13 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
                 .strip_prefix(&plan.workspace_root)
                 .unwrap_or(toml_path);
             paths_to_add.push(toml_rel.to_string_lossy().to_string());
+
+            // Cargo.lock is updated when Cargo.toml version changes; include it
+            // in the commit if it exists.
+            let lock_path = plan.workspace_root.join("Cargo.lock");
+            if lock_path.is_file() {
+                paths_to_add.push("Cargo.lock".to_string());
+            }
         }
         if !plan.no_stage {
             let sources_dir = plan.packaging_root.join("rpm").join("sources");
@@ -755,6 +762,7 @@ fn collect_rpm_artifacts(
     workspace_root: &Path,
     arch: Arch,
     rpm_arch: &str,
+    version: &str,
 ) -> Result<Vec<PathBuf>> {
     let rpm_dir = workspace_root
         .join("target/tizen")
@@ -766,6 +774,11 @@ fn collect_rpm_artifacts(
         return Ok(Vec::new());
     }
 
+    // RPM filenames follow <name>-<version>-<release>.<arch>.rpm.
+    // Filter to only include RPMs whose filename contains the target version
+    // so stale RPMs from previous builds are not picked up.
+    let version_needle = format!("-{}-", version);
+
     let mut rpms = Vec::new();
     for entry in fs::read_dir(&rpm_dir)
         .with_context(|| format!("failed to read RPM directory {}", rpm_dir.display()))?
@@ -773,7 +786,13 @@ fn collect_rpm_artifacts(
         let entry = entry?;
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) == Some("rpm") {
-            rpms.push(path);
+            let fname = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy();
+            if fname.contains(&version_needle) {
+                rpms.push(path);
+            }
         }
     }
     rpms.sort();

@@ -99,7 +99,7 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
 
     // -- Build plan --
     let plan = ReleasePlan {
-        package_name: package_name.clone(),
+        package_name: spec_name.to_string(),
         version: version.clone(),
         tag: tag.clone(),
         arches: resolved.arches.clone(),

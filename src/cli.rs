@@ -134,16 +134,17 @@ Examples:
   cargo tizen gh-release
   cargo tizen gh-release --dry-run
   cargo tizen gh-release --yes -A aarch64
-  cargo tizen gh-release --no-stage --draft
   cargo tizen gh-release --bump patch
   cargo tizen gh-release --bump minor --yes
 
 Notes:
   gh-release always shows a plan and asks for confirmation before executing.
+  gh-release requires .cargo-tizen.toml to define [package].name and [package].packages.
   Use --yes to skip confirmation (for scripts/CI).
   Use --dry-run to see the plan without executing.
   Use --bump major|minor|patch to auto-increment the version before releasing.
-  Use --force-tag to re-tag an existing version without prompting.
+  Tag format defaults to v{version}; override with [release].tag_format when needed.
+  Release notes default to commit subjects from the previous release tag to HEAD.
   Requires gh CLI (https://cli.github.com) to be installed and authenticated.";
 
 #[derive(Debug, Parser)]
@@ -532,17 +533,10 @@ pub enum BumpLevel {
 #[derive(Debug, Clone, Args)]
 pub struct GhReleaseArgs {
     #[arg(
-        short = 'p',
-        long,
-        help = "Workspace member to release when running from a workspace root"
-    )]
-    pub package: Option<String>,
-
-    #[arg(
         short = 'A',
         long,
         num_args = 1..,
-        help = "Target architectures to release (default: armv7l aarch64)"
+        help = "Target architectures to release (default: [release].arches or armv7l aarch64)"
     )]
     pub arch: Vec<Arch>,
 
@@ -552,44 +546,6 @@ pub struct GhReleaseArgs {
         help = "Bump version before releasing (major, minor, or patch)"
     )]
     pub bump: Option<BumpLevel>,
-
-    #[arg(long, help = "Git remote (default: origin)")]
-    pub remote: Option<String>,
-
-    #[arg(
-        long,
-        value_name = "FMT",
-        help = "Tag format with {version} placeholder (default: v{version})"
-    )]
-    pub tag_format: Option<String>,
-
-    #[arg(long, help = "Required release branch (default: main)")]
-    pub branch: Option<String>,
-
-    #[arg(long, help = "Force-move an existing tag without prompting")]
-    pub force_tag: bool,
-
-    #[arg(long, help = "Auto-update spec Version: field without prompting")]
-    pub sync_spec_version: bool,
-
-    #[arg(long, help = "Skip staging binaries to tizen/<arch>/")]
-    pub no_stage: bool,
-
-    #[arg(
-        long,
-        help = "Skip GitHub release creation (stage + commit + tag only)"
-    )]
-    pub no_gh_release: bool,
-
-    #[arg(
-        long,
-        value_name = "PATH",
-        help = "Use this file as release notes instead of auto-generating"
-    )]
-    pub notes_file: Option<PathBuf>,
-
-    #[arg(long, help = "Create the GitHub release as a draft")]
-    pub draft: bool,
 
     #[arg(long, help = "Show the execution plan and exit without executing")]
     pub dry_run: bool,

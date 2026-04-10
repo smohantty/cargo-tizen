@@ -118,6 +118,10 @@ pub fn resolve_rpm_packages(
     resolve_for_command(ctx, None, "rpm").map(|pkg| vec![pkg])
 }
 
+pub fn resolve_configured_packages(ctx: &AppContext) -> Result<Option<Vec<SelectedPackage>>> {
+    configured_packages(ctx)
+}
+
 pub fn workspace_selection_message(path: &Path, command_name: &str) -> String {
     format!(
         "workspace root detected at {}\n`cargo tizen {}` needs a package selection\nrerun with: cargo tizen {} -p <member>\nor set packages in .cargo-tizen.toml:\n[package]\npackages = [\"<member>\"]\nor for multi-binary RPM:\n[package]\npackages = [\"<member-a>\", \"<member-b>\"]",

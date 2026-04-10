@@ -23,6 +23,7 @@ Upstream adaptation reference:
 
 Implemented:
 - CLI scaffold for `init`, `setup`, `build`, `rpm`, `tpk`, `devices`, `install`, `doctor`, `fix`, `clean`, `config`.
+- Fixed `gh-release` pipeline for RPM-based GitHub releases.
 - `ArchMap` defaults for Rust target, Tizen CLI arch, Tizen build arch, and RPM build arch.
 - Project scaffolding for starter `.cargo-tizen.toml`, RPM spec, and TPK manifest files.
 - Rootstrap-based sysroot provisioning from installed Tizen SDK rootstraps.
@@ -251,7 +252,24 @@ Behavior:
 - `--sign ""`: clear the stored signing profile.
 - `--show` or no flags: print current resolved configuration values.
 
-## 4.12 `tpk`
+## 4.12 `gh-release`
+
+```bash
+cargo tizen gh-release [-A <armv7l|aarch64>...] [--bump <major|minor|patch>] [--dry-run] [--yes]
+```
+
+Purpose:
+- Run the repository-owned RPM release pipeline and publish a GitHub release.
+
+Behavior:
+- Requires `.cargo-tizen.toml` to define `[package].name` and `[package].packages`.
+- Uses `[release].arches` when present; otherwise releases both supported architectures.
+- Uses `[release].tag_format` when present; otherwise tags releases as `v{version}`.
+- Has no package-selection override flag; release package selection is owned by project config.
+- Always runs the same steps: build configured packages, package RPMs, stage `tizen/rpm/sources`, sync the spec `Version:` field, commit release artifacts, create the configured release tag, push branch and tag, then create or update the GitHub release.
+- Default release notes are commit subjects from the previous matching release tag to `HEAD`.
+
+## 4.13 `tpk`
 
 ```bash
 cargo tizen tpk [-A <armv7l|aarch64>] [--release] [--packaging-dir <path>] [--output <dir>] [--sign <profile>] [--no-build]
@@ -269,7 +287,7 @@ Behavior:
 - Invokes `tizen package -t tpk`.
 - Emits generated `.tpk` path(s).
 
-## 4.13 Architecture Auto-Detection
+## 4.14 Architecture Auto-Detection
 
 When `-A/--arch` is omitted for `setup`, `build`, `rpm`, `tpk`, and `install`, architecture is resolved in this order:
 1. `[default].arch` in config.
@@ -290,6 +308,7 @@ Config precedence (highest first):
 
 Note:
 - Project config file is optional. Built-in defaults are intended to support zero-config startup when SDK/toolchains are discoverable.
+- Exception: `gh-release` reads release-owned inputs from project config only. Its package selection comes from `[package]`, and its optional release architecture list comes from `[release]`.
 
 Example:
 
@@ -304,6 +323,10 @@ packaging_dir = "./packaging"
 [package]
 name = "my-project"                       # packaging artifact name; controls spec filename lookup
 packages = ["crate-server", "crate-cli"]  # crates to build and stage; first entry is the default package
+
+[release]
+arches = ["armv7l", "aarch64"]
+tag_format = "enterprise-v{version}"
 
 [arch.armv7l]
 rust_target = "armv7-unknown-linux-gnueabi"

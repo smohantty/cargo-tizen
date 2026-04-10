@@ -151,6 +151,32 @@ When omitted, it defaults to the first entry in `packages`. The `packages` list
 controls which crates are built and staged. Packaging inputs are validated before the
 build starts. Single-crate projects get both fields set to the crate name by `cargo tizen init`.
 
+### Publish a GitHub release
+
+```bash
+cargo tizen gh-release --dry-run
+cargo tizen gh-release --bump patch
+```
+
+`gh-release` is a fixed release-phase pipeline. It reads release inputs from `.cargo-tizen.toml`,
+builds the configured packages, packages RPMs, stages them into `tizen/rpm/sources`, syncs the
+spec `Version:` field, tags `v<version>`, and creates or updates the GitHub release with RPM and
+SHA256 assets.
+
+For `gh-release`, `.cargo-tizen.toml` must define:
+
+```toml
+[package]
+name = "my-app"
+packages = ["my-app"]
+```
+
+Optional release arches can be set in `[release]`. When omitted, `gh-release` publishes both
+`armv7l` and `aarch64`. Tag format defaults to `v{version}` and can be overridden with
+`[release].tag_format` for fork-specific release namespaces. Default release notes are commit
+subjects from the previous matching release tag to `HEAD`. Use `--dry-run` to preview the full
+plan before pushing.
+
 ### Package as TPK
 
 ```bash
@@ -227,6 +253,9 @@ and `[package].packages` to list which crates to build. In a single-crate projec
 default to the crate name. In a multi-crate workspace, set `name` to your desired RPM
 name and `packages` to the members that should be built and staged.
 
+Use `[release].arches` to choose which architectures `cargo tizen gh-release` publishes. Use
+`[release].tag_format` when your repo needs a tag namespace other than `v{version}`.
+
 Minimal (just point to SDK):
 
 ```toml
@@ -246,6 +275,10 @@ packaging_dir = "./packaging"
 [package]
 name = "my-app"
 packages = ["my-app"]
+
+[release]
+arches = ["armv7l", "aarch64"]
+tag_format = "enterprise-v{version}"
 
 [sdk]
 root = "/path/to/tizen-studio"

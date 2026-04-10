@@ -34,6 +34,7 @@ Command summary:
 | `fix` | Install missing Rust targets and prepare missing sysroots |
 | `build` | Cross-build the current Rust project for a Tizen target |
 | `rpm` | Package the project as an RPM using an existing spec file |
+| `gh-release` | Run the fixed RPM release pipeline and publish a GitHub release |
 | `tpk` | Package the project as a signed TPK using the Tizen CLI |
 | `install` | Build or reuse a TPK and install it on a connected device |
 | `devices` | List connected Tizen devices discovered via `sdb` |
@@ -165,6 +166,32 @@ cargo tizen rpm -A armv7l --release
 cargo tizen rpm -A aarch64 --release --packaging-dir ./packaging
 cargo tizen rpm -A armv7l --no-build
 cargo tizen rpm -p my-server   # single-package override
+```
+
+## `gh-release`
+
+Run the fixed release pipeline for the current project and publish a GitHub release.
+
+```sh
+cargo tizen gh-release [-A <armv7l|aarch64>...] [--bump <major|minor|patch>] [--dry-run] [--yes]
+```
+
+Behavior:
+
+- `gh-release` requires project config in `.cargo-tizen.toml`.
+- It requires `[package].name` and `[package].packages`; there is no `-p/--package` override.
+- Optional `[release].arches` sets the default release architectures. If omitted, both `armv7l` and `aarch64` are released.
+- Optional `[release].tag_format` overrides the default tag format `v{version}`. It must include `{version}`.
+- The command always runs the same release steps: build configured packages, package RPMs with `--no-build`, stage RPMs to `tizen/rpm/sources`, sync the spec `Version:` field, commit release artifacts, create the configured release tag, push, then create or update the GitHub release.
+- Release notes default to commit subjects from the previous matching release tag to `HEAD`.
+- `--dry-run` prints the resolved plan and generated release notes without changing files, tags, or the GitHub release.
+
+Examples:
+
+```sh
+cargo tizen gh-release --dry-run
+cargo tizen gh-release --bump patch
+cargo tizen gh-release --yes -A aarch64
 ```
 
 ## `doctor`

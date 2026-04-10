@@ -28,8 +28,8 @@ pub struct Config {
     #[serde(default)]
     pub tpk: TpkConfig,
 
-    #[serde(default)]
-    pub gh_release: GhReleaseConfig,
+    #[serde(default, alias = "gh_release")]
+    pub release: ReleaseConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -75,14 +75,9 @@ pub struct TpkConfig {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct GhReleaseConfig {
-    pub package: Option<String>,
+pub struct ReleaseConfig {
     pub arches: Option<Vec<String>>,
-    pub remote: Option<String>,
-    pub branch: Option<String>,
     pub tag_format: Option<String>,
-    pub sync_spec_version: Option<bool>,
-    pub notes_command: Option<String>,
 }
 
 impl Config {
@@ -101,6 +96,10 @@ impl Config {
         }
 
         Ok(cfg)
+    }
+
+    pub fn read_path(path: &Path) -> Result<Self> {
+        Self::read_file(path)
     }
 
     fn read_file(path: &Path) -> Result<Self> {
@@ -126,7 +125,7 @@ impl Config {
         self.cache.merge(other.cache);
         self.sdk.merge(other.sdk);
         self.tpk.merge(other.tpk);
-        self.gh_release.merge(other.gh_release);
+        self.release.merge(other.release);
     }
 
     pub fn profile(&self) -> String {
@@ -340,28 +339,13 @@ impl TpkConfig {
     }
 }
 
-impl GhReleaseConfig {
+impl ReleaseConfig {
     fn merge(&mut self, other: Self) {
-        if other.package.is_some() {
-            self.package = other.package;
-        }
         if other.arches.is_some() {
             self.arches = other.arches;
         }
-        if other.remote.is_some() {
-            self.remote = other.remote;
-        }
-        if other.branch.is_some() {
-            self.branch = other.branch;
-        }
         if other.tag_format.is_some() {
             self.tag_format = other.tag_format;
-        }
-        if other.sync_spec_version.is_some() {
-            self.sync_spec_version = other.sync_spec_version;
-        }
-        if other.notes_command.is_some() {
-            self.notes_command = other.notes_command;
         }
     }
 }

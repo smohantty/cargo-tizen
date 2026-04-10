@@ -563,6 +563,7 @@ mod tests {
         assert!(config.contains("[package]"));
         assert!(config.contains("name = \"demo-app\""));
         assert!(config.contains("packages = [\"demo-app\"]"));
+        assert!(!config.contains("[release]"));
         assert!(config.contains("[default]"));
         assert!(config.contains("arch = \"aarch64\""));
         assert!(config.contains("profile = \"mobile\""));

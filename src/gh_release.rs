@@ -7,70 +7,56 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 use crate::arch::Arch;
-use crate::cli::{BumpLevel, GhReleaseArgs};
+use crate::cargo_runner;
+use crate::cli::{BuildArgs, BumpLevel, GhReleaseArgs, RpmArgs};
+use crate::config::Config;
 use crate::context::AppContext;
 use crate::output::{cargo_status, color_enabled};
+use crate::package_select::{self, SelectedPackage};
 use crate::packaging::PackagingLayout;
+use crate::rpm;
 
-// ---------------------------------------------------------------------------
-// Resolved configuration (CLI args merged with .cargo-tizen.toml)
-// ---------------------------------------------------------------------------
+const RELEASE_REMOTE: &str = "origin";
+const RELEASE_BRANCH: &str = "main";
 
 struct ResolvedConfig {
-    package: Option<String>,
+    packages: Vec<SelectedPackage>,
     arches: Vec<Arch>,
-    remote: String,
-    branch: String,
+    spec_name: String,
     tag_format: String,
-    sync_spec_version: bool,
 }
-
-// ---------------------------------------------------------------------------
-// Release plan (everything needed to execute the release)
-// ---------------------------------------------------------------------------
 
 struct ReleasePlan {
     package_name: String,
+    packages: Vec<String>,
     version: String,
     tag: String,
     arches: Vec<Arch>,
-    remote: String,
-    no_stage: bool,
-    no_gh_release: bool,
-    draft: bool,
-    notes_file: Option<PathBuf>,
-    notes_command: Option<String>,
     workspace_root: PathBuf,
     packaging_root: PathBuf,
     version_bumped: bool,
     cargo_toml_path: Option<PathBuf>,
+    notes: String,
 }
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
 
 pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
     validate_flags(args)?;
 
-    let resolved = resolve_config(ctx, args);
+    let release_ctx = load_project_context(ctx)?;
+    let resolved = resolve_config(&release_ctx, args)?;
+    preflight_checks()?;
 
-    // -- Preflight checks --
-    preflight_checks(&resolved.remote, &resolved.branch)?;
+    let packaging = PackagingLayout::new(
+        &release_ctx.workspace_root,
+        release_ctx.config.packaging_dir().as_deref(),
+    );
+    let spec_path = packaging.resolve_rpm_spec(&resolved.spec_name)?;
 
-    // -- Resolve package name --
-    let package_name = resolve_package_name(ctx, args, &resolved)?;
-
-    // -- Resolve packaging layout --
-    let packaging =
-        PackagingLayout::new(&ctx.workspace_root, ctx.config.packaging_dir().as_deref());
-
-    // -- Version bump (optional) --
     let mut version_bumped = false;
     let mut cargo_toml_path: Option<PathBuf> = None;
     let version = if let Some(level) = args.bump {
         let (toml_path, current_version) =
-            resolve_cargo_version_path(&ctx.workspace_root, &package_name)?;
+            resolve_release_version_path(&release_ctx.workspace_root, &resolved.packages)?;
         let new_version = bump_version(&current_version, level)?;
         if !args.dry_run {
             update_cargo_toml_version(&toml_path, &current_version, &new_version)?;
@@ -87,117 +73,86 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         }
         new_version
     } else {
-        read_cargo_version(&ctx.workspace_root, &package_name)?
+        read_release_version(&release_ctx.workspace_root, &resolved.packages)?
     };
 
-    // -- Spec version sync --
-    let spec_name = ctx.config.rpm_spec_name().unwrap_or(&package_name);
-    let spec_path = packaging.rpm_spec_path(spec_name);
-    let mut spec_synced = false;
-    if spec_path.is_file() {
-        let spec_version = read_spec_version(&spec_path)?;
-        if let Some(ref sv) = spec_version {
-            if sv != &version {
-                if version_bumped
-                    || args.sync_spec_version
-                    || resolved.sync_spec_version
-                    || args.yes
-                {
-                    sync_spec_version(&spec_path, &version)?;
-                    spec_synced = true;
-                } else {
-                    let prompt = format!(
-                        "Cargo.toml version is {} but spec says {}. Update spec to match?",
-                        version, sv
-                    );
-                    if prompt_yn(&prompt, true) {
-                        sync_spec_version(&spec_path, &version)?;
-                        spec_synced = true;
-                    }
-                }
-            }
-        }
-    }
-
-    // -- Tag resolution --
+    let spec_synced = sync_spec_if_needed(args.dry_run, &spec_path, &version)?;
     let tag = format_tag(&resolved.tag_format, &version);
-    let tag_exists = check_tag_exists(&tag);
-
-    // -- Force-tag gating --
-    if tag_exists && !args.force_tag {
-        if args.yes {
-            bail!("tag {} already exists — use --force-tag to re-tag", tag);
-        }
-        let prompt = format!("Tag {} already exists. Force-move it to HEAD?", tag);
-        if !prompt_yn(&prompt, false) {
-            bail!("aborted: tag {} already exists", tag);
-        }
+    if check_tag_exists(&tag) || remote_tag_exists(RELEASE_REMOTE, &tag)? {
+        bail!(
+            "tag {} already exists\n\
+             bump the version or remove the existing tag before releasing",
+            tag
+        );
     }
 
-    // -- Build plan --
+    let notes = generate_release_notes(&release_ctx.workspace_root, &resolved.tag_format, &tag)?;
     let plan = ReleasePlan {
-        package_name: spec_name.to_string(),
+        package_name: resolved.spec_name.clone(),
+        packages: resolved
+            .packages
+            .iter()
+            .map(|pkg| pkg.name.clone())
+            .collect(),
         version: version.clone(),
         tag: tag.clone(),
         arches: resolved.arches.clone(),
-        remote: resolved.remote.clone(),
-        no_stage: args.no_stage,
-        no_gh_release: args.no_gh_release,
-        draft: args.draft,
-        notes_file: args.notes_file.clone(),
-        notes_command: ctx.config.gh_release.notes_command.clone(),
-        workspace_root: ctx.workspace_root.clone(),
+        workspace_root: release_ctx.workspace_root.clone(),
         packaging_root: packaging.root().to_path_buf(),
         version_bumped,
         cargo_toml_path,
+        notes,
     };
 
-    // -- Print plan (always, like an implicit dry-run) --
-    print_plan(&plan, spec_synced, tag_exists);
+    print_plan(&plan, spec_synced);
 
-    // -- Confirm --
     if args.dry_run {
         return Ok(());
     }
-    if !args.yes {
-        if !prompt_yn("Proceed?", true) {
-            bail!("aborted by user");
-        }
+    if !args.yes && !prompt_yn("Proceed?", true) {
+        bail!("aborted by user");
     }
 
-    // ======================================================================
-    // PHASE B: Execute
-    // ======================================================================
-
     let use_color = color_enabled();
-    let exe = self_exe()?;
+    let build_cargo_args = cargo_package_args(&resolved.packages);
 
-    // Step 3: Cross-build
-    // The package is already resolved from .cargo-tizen.toml [default].package.
-    // Just pass -A and --release; let the existing config handle the rest.
     for &arch in &plan.arches {
         ctx.info(format!(
             "{} {} (release)",
             cargo_status(use_color, "Building"),
             arch.as_str()
         ));
-        run_cargo_tizen(&exe, &["build", "-A", arch.as_str(), "--release"])?;
+        let build_args = BuildArgs {
+            arch: Some(arch),
+            release: true,
+            target_dir: Some(cargo_runner::resolve_target_dir(
+                &release_ctx.workspace_root,
+                arch,
+                None,
+            )),
+            cargo_args: build_cargo_args.clone(),
+        };
+        cargo_runner::run_build(&release_ctx, &build_args)?;
     }
 
-    // Step 4: Build RPMs
-    let mut all_rpms: Vec<PathBuf> = Vec::new();
+    let mut all_rpms = Vec::new();
     for &arch in &plan.arches {
         ctx.info(format!(
             "{} {} (release, --no-build)",
             cargo_status(use_color, "Packaging RPM"),
             arch.as_str()
         ));
-        run_cargo_tizen(
-            &exe,
-            &["rpm", "-A", arch.as_str(), "--release", "--no-build"],
-        )?;
+        let rpm_args = RpmArgs {
+            arch: Some(arch),
+            package: None,
+            release: true,
+            packaging_dir: None,
+            output: None,
+            no_build: true,
+        };
+        rpm::run_rpm(&release_ctx, &rpm_args)?;
 
-        let rpm_arch = ctx.config.rpm_build_arch_for(arch);
+        let rpm_arch = release_ctx.config.rpm_build_arch_for(arch);
         let mut rpms = collect_rpm_artifacts(&plan.workspace_root, arch, &rpm_arch, &plan.version)?;
         all_rpms.append(&mut rpms);
     }
@@ -206,13 +161,9 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         bail!("no RPM files found after packaging");
     }
 
-    // Step 5: Stage RPMs to tizen/rpm/
-    if !plan.no_stage {
-        stage_rpms(ctx, &plan, &all_rpms)?;
-    }
+    stage_rpms(ctx, &plan, &all_rpms)?;
 
-    // Step 6: SHA256 sidecars
-    let mut all_assets: Vec<PathBuf> = Vec::new();
+    let mut all_assets = Vec::new();
     for rpm in &all_rpms {
         let sidecar = generate_sha256_sidecar(rpm)?;
         ctx.info(format!(
@@ -224,138 +175,136 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         all_assets.push(sidecar);
     }
 
-    // Step 7: Commit version bump, staged RPMs, and spec changes
-    {
-        let mut paths_to_add: Vec<String> = Vec::new();
-        if let Some(ref toml_path) = plan.cargo_toml_path {
-            let toml_rel = toml_path
-                .strip_prefix(&plan.workspace_root)
-                .unwrap_or(toml_path);
-            paths_to_add.push(toml_rel.to_string_lossy().to_string());
+    let mut paths_to_add = Vec::new();
+    if let Some(ref toml_path) = plan.cargo_toml_path {
+        let toml_rel = toml_path
+            .strip_prefix(&plan.workspace_root)
+            .unwrap_or(toml_path);
+        paths_to_add.push(toml_rel.to_string_lossy().to_string());
 
-            // Cargo.lock is updated when Cargo.toml version changes; include it
-            // in the commit if it exists.
-            let lock_path = plan.workspace_root.join("Cargo.lock");
-            if lock_path.is_file() {
-                paths_to_add.push("Cargo.lock".to_string());
-            }
-        }
-        if !plan.no_stage {
-            let sources_dir = plan.packaging_root.join("rpm").join("sources");
-            let sources_rel = sources_dir
-                .strip_prefix(&plan.workspace_root)
-                .unwrap_or(&sources_dir);
-            paths_to_add.push(format!("{}/", sources_rel.display()));
-        }
-        if spec_synced {
-            let spec_rel = spec_path
-                .strip_prefix(&plan.workspace_root)
-                .unwrap_or(&spec_path);
-            paths_to_add.push(spec_rel.to_string_lossy().to_string());
-        }
-        if !paths_to_add.is_empty() {
-            git_commit(&plan, &paths_to_add)?;
+        let lock_path = plan.workspace_root.join("Cargo.lock");
+        if lock_path.is_file() {
+            paths_to_add.push("Cargo.lock".to_string());
         }
     }
-
-    // Step 8: Generate release notes BEFORE tagging (so git log range works)
-    let notes = if !plan.no_gh_release {
-        Some(generate_release_notes(&plan)?)
-    } else {
-        None
-    };
-
-    // Step 9: Tag and push
-    git_tag_and_push(&plan, tag_exists)?;
-
-    // Step 10: GitHub release
-    if let Some(notes) = &notes {
-        gh_release_create(&plan, &all_assets, notes)?;
+    let sources_dir = plan.packaging_root.join("rpm").join("sources");
+    let sources_rel = sources_dir
+        .strip_prefix(&plan.workspace_root)
+        .unwrap_or(&sources_dir);
+    paths_to_add.push(format!("{}/", sources_rel.display()));
+    if spec_synced {
+        let spec_rel = spec_path
+            .strip_prefix(&plan.workspace_root)
+            .unwrap_or(&spec_path);
+        paths_to_add.push(spec_rel.to_string_lossy().to_string());
+    }
+    if !paths_to_add.is_empty() {
+        git_commit(&plan, &paths_to_add)?;
     }
 
-    // Step 11: Verify
-    if !plan.no_gh_release {
-        verify_release(&plan, &all_rpms)?;
-    }
-
-    // Step 12: Summary
+    git_tag_and_push(&plan)?;
+    gh_release_create(&plan, &all_assets, &plan.notes)?;
+    verify_release(&plan, &all_assets)?;
     print_summary(ctx, &plan, &all_assets);
 
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Phase A helpers
-// ---------------------------------------------------------------------------
-
-fn validate_flags(args: &GhReleaseArgs) -> Result<()> {
-    if args.no_stage && args.no_gh_release {
-        bail!(
-            "cannot use --no-stage and --no-gh-release together\n\
-             that would reduce to a plain build, which is already `cargo tizen rpm`"
-        );
-    }
+fn validate_flags(_args: &GhReleaseArgs) -> Result<()> {
     Ok(())
 }
 
-fn resolve_config(ctx: &AppContext, args: &GhReleaseArgs) -> ResolvedConfig {
-    let cfg = &ctx.config.gh_release;
+fn load_project_context(ctx: &AppContext) -> Result<AppContext> {
+    let project_config_path = ctx.workspace_root.join(".cargo-tizen.toml");
+    if !project_config_path.is_file() {
+        bail!(
+            "gh-release requires project config at {}\n\
+             add .cargo-tizen.toml with [package].name and [package].packages",
+            project_config_path.display()
+        );
+    }
 
+    let config = Config::read_path(&project_config_path)?;
+    Ok(AppContext {
+        config,
+        workspace_root: ctx.workspace_root.clone(),
+    })
+}
+
+fn resolve_config(ctx: &AppContext, args: &GhReleaseArgs) -> Result<ResolvedConfig> {
     let arches = if !args.arch.is_empty() {
         args.arch.clone()
-    } else if let Some(ref configured) = cfg.arches {
-        configured.iter().filter_map(|s| Arch::parse(s)).collect()
+    } else if let Some(ref configured) = ctx.config.release.arches {
+        parse_release_arches(configured)?
     } else {
         vec![Arch::Armv7l, Arch::Aarch64]
     };
 
-    let remote = args
-        .remote
-        .clone()
-        .or_else(|| cfg.remote.clone())
-        .unwrap_or_else(|| "origin".to_string());
+    let packages = package_select::resolve_configured_packages(ctx)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "gh-release requires [package].packages in .cargo-tizen.toml\n\
+             define the exact crates to build and stage for release"
+        )
+    })?;
+    let spec_name = ctx.config.package.name().ok_or_else(|| {
+        anyhow::anyhow!(
+            "gh-release requires [package].name in .cargo-tizen.toml\n\
+             use it to define the RPM/spec and release artifact name"
+        )
+    })?;
+    let tag_format = resolve_tag_format(ctx.config.release.tag_format.as_deref())?;
 
-    let branch = args
-        .branch
-        .clone()
-        .or_else(|| cfg.branch.clone())
-        .unwrap_or_else(|| "main".to_string());
-
-    let tag_format = args
-        .tag_format
-        .clone()
-        .or_else(|| cfg.tag_format.clone())
-        .unwrap_or_else(|| "v{version}".to_string());
-
-    let sync_spec_version = cfg.sync_spec_version.unwrap_or(false);
-
-    let package = args
-        .package
-        .clone()
-        .or_else(|| cfg.package.clone())
-        .or_else(|| ctx.config.primary_package().map(String::from));
-
-    ResolvedConfig {
-        package,
+    Ok(ResolvedConfig {
+        packages,
         arches,
-        remote,
-        branch,
+        spec_name: spec_name.to_string(),
         tag_format,
-        sync_spec_version,
-    }
+    })
 }
 
-fn preflight_checks(remote: &str, expected_branch: &str) -> Result<()> {
-    // Check git is available
-    which::which("git").context("git not found in PATH")?;
+fn parse_release_arches(configured: &[String]) -> Result<Vec<Arch>> {
+    if configured.is_empty() {
+        bail!("[release].arches must not be empty");
+    }
 
-    // Check gh is available
+    let mut arches = Vec::with_capacity(configured.len());
+    let mut invalid = Vec::new();
+    for raw in configured {
+        match Arch::parse(raw) {
+            Some(arch) => arches.push(arch),
+            None => invalid.push(raw.clone()),
+        }
+    }
+
+    if !invalid.is_empty() {
+        bail!(
+            "invalid architecture(s) in [release].arches: {}\n\
+             expected one or more of: armv7l, aarch64",
+            invalid.join(", ")
+        );
+    }
+
+    Ok(arches)
+}
+
+fn resolve_tag_format(configured: Option<&str>) -> Result<String> {
+    let tag_format = configured.unwrap_or("v{version}").trim();
+    if tag_format.is_empty() {
+        bail!("[release].tag_format must not be empty");
+    }
+    if !tag_format.contains("{version}") {
+        bail!("[release].tag_format must contain {{version}}");
+    }
+    Ok(tag_format.to_string())
+}
+
+fn preflight_checks() -> Result<()> {
+    which::which("git").context("git not found in PATH")?;
     which::which("gh").context(
         "gh not found in PATH\n\
          install from: https://cli.github.com",
     )?;
 
-    // Clean worktree
     let output = Command::new("git")
         .args(["status", "--porcelain"])
         .output()
@@ -368,16 +317,15 @@ fn preflight_checks(remote: &str, expected_branch: &str) -> Result<()> {
         );
     }
 
-    // Correct branch
     let output = Command::new("git")
         .args(["branch", "--show-current"])
         .output()
         .context("failed to determine current branch")?;
     let current_branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if current_branch != expected_branch {
+    if current_branch != RELEASE_BRANCH {
         bail!(
             "releases must be created from branch {} (current: {})",
-            expected_branch,
+            RELEASE_BRANCH,
             if current_branch.is_empty() {
                 "detached HEAD"
             } else {
@@ -386,7 +334,6 @@ fn preflight_checks(remote: &str, expected_branch: &str) -> Result<()> {
         );
     }
 
-    // gh auth
     let status = Command::new("gh")
         .args(["auth", "status"])
         .stdout(std::process::Stdio::null())
@@ -397,40 +344,30 @@ fn preflight_checks(remote: &str, expected_branch: &str) -> Result<()> {
         bail!("gh is not authenticated — run: gh auth login");
     }
 
-    // Remote exists
     let status = Command::new("git")
-        .args(["remote", "get-url", remote])
+        .args(["remote", "get-url", RELEASE_REMOTE])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
         .context("failed to check git remote")?;
     if !status.success() {
-        bail!("git remote not found: {}", remote);
+        bail!("git remote not found: {}", RELEASE_REMOTE);
     }
 
     Ok(())
 }
 
-fn resolve_package_name(
-    ctx: &AppContext,
-    args: &GhReleaseArgs,
-    resolved: &ResolvedConfig,
-) -> Result<String> {
-    if let Some(ref pkg) = resolved.package {
-        return Ok(pkg.clone());
+fn cargo_package_args(packages: &[SelectedPackage]) -> Vec<String> {
+    let mut cargo_args = Vec::new();
+    for package in packages {
+        if package.source.requires_cargo_package_arg() {
+            cargo_args.extend(["-p".to_string(), package.name.clone()]);
+        }
     }
-    // Fall back to reading [package].name from Cargo.toml
-    let name = default_package_name(&ctx.workspace_root);
-    if name.is_empty() {
-        bail!(
-            "could not determine package name\n\
-             use -p <name> or set [gh_release].package in .cargo-tizen.toml"
-        );
-    }
-    let _ = args; // suppress unused warning
-    Ok(name)
+    cargo_args
 }
 
+#[cfg(test)]
 fn default_package_name(workspace_root: &Path) -> String {
     let toml_path = workspace_root.join("Cargo.toml");
     let Ok(raw) = fs::read_to_string(&toml_path) else {
@@ -452,31 +389,30 @@ fn resolve_cargo_version_path(
     let parsed: toml_types::CargoToml = basic_toml::from_str(&raw)
         .with_context(|| format!("failed to parse {}", toml_path.display()))?;
 
-    // Try [package].version first
     if let Some(ref pkg) = parsed.package {
-        if let Some(ref v) = pkg.version {
-            return Ok((toml_path, v.clone()));
-        }
-    }
-    // Then [workspace.package].version
-    if let Some(ref ws) = parsed.workspace {
-        if let Some(ref pkg) = ws.package {
-            if let Some(ref v) = pkg.version {
-                return Ok((toml_path, v.clone()));
-            }
+        if let Some(ref version) = pkg.version {
+            return Ok((toml_path.clone(), version.clone()));
         }
     }
 
-    // Try member directory: <workspace_root>/<package_name>/Cargo.toml
-    let member_toml = workspace_root.join(package_name).join("Cargo.toml");
+    let member_toml = find_package_manifest_path(workspace_root, package_name)
+        .unwrap_or_else(|| workspace_root.join(package_name).join("Cargo.toml"));
     if member_toml.is_file() {
         let raw = fs::read_to_string(&member_toml)
             .with_context(|| format!("failed to read {}", member_toml.display()))?;
         let parsed: toml_types::CargoToml = basic_toml::from_str(&raw)
             .with_context(|| format!("failed to parse {}", member_toml.display()))?;
         if let Some(ref pkg) = parsed.package {
-            if let Some(ref v) = pkg.version {
-                return Ok((member_toml, v.clone()));
+            if let Some(ref version) = pkg.version {
+                return Ok((member_toml, version.clone()));
+            }
+        }
+    }
+
+    if let Some(ref ws) = parsed.workspace {
+        if let Some(ref pkg) = ws.package {
+            if let Some(ref version) = pkg.version {
+                return Ok((toml_path.clone(), version.clone()));
             }
         }
     }
@@ -491,8 +427,70 @@ fn resolve_cargo_version_path(
     )
 }
 
+#[cfg(test)]
 fn read_cargo_version(workspace_root: &Path, package_name: &str) -> Result<String> {
-    resolve_cargo_version_path(workspace_root, package_name).map(|(_, v)| v)
+    resolve_cargo_version_path(workspace_root, package_name).map(|(_, version)| version)
+}
+
+fn resolve_release_version_path(
+    workspace_root: &Path,
+    packages: &[SelectedPackage],
+) -> Result<(PathBuf, String)> {
+    let mut resolved = Vec::new();
+    for package in packages {
+        let (path, version) = resolve_cargo_version_path(workspace_root, &package.name)?;
+        if resolved
+            .iter()
+            .all(|(existing, _): &(PathBuf, String)| existing != &path)
+        {
+            resolved.push((path, version));
+        }
+    }
+
+    if resolved.len() == 1 {
+        return Ok(resolved.remove(0));
+    }
+
+    let package_names: Vec<&str> = packages
+        .iter()
+        .map(|package| package.name.as_str())
+        .collect();
+    let manifest_paths: Vec<String> = resolved
+        .iter()
+        .map(|(path, _)| path.display().to_string())
+        .collect();
+    bail!(
+        "gh-release requires all configured packages to share one version source\n\
+         packages: {}\n\
+         resolved manifests: {}",
+        package_names.join(", "),
+        manifest_paths.join(", ")
+    );
+}
+
+fn read_release_version(workspace_root: &Path, packages: &[SelectedPackage]) -> Result<String> {
+    resolve_release_version_path(workspace_root, packages).map(|(_, version)| version)
+}
+
+fn find_package_manifest_path(workspace_root: &Path, package_name: &str) -> Option<PathBuf> {
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--no-deps")
+        .arg("--format-version")
+        .arg("1")
+        .current_dir(workspace_root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let metadata: toml_types::CargoMetadata = serde_json::from_slice(&output.stdout).ok()?;
+    metadata
+        .packages
+        .into_iter()
+        .find(|package| package.name == package_name)
+        .map(|package| PathBuf::from(package.manifest_path))
 }
 
 fn bump_version(current: &str, level: BumpLevel) -> Result<String> {
@@ -513,27 +511,26 @@ fn bump_version(current: &str, level: BumpLevel) -> Result<String> {
         .parse()
         .with_context(|| format!("invalid patch version: {}", parts[2]))?;
 
-    let (m, n, p) = match level {
+    let (major, minor, patch) = match level {
         BumpLevel::Major => (major + 1, 0, 0),
         BumpLevel::Minor => (major, minor + 1, 0),
         BumpLevel::Patch => (major, minor, patch + 1),
     };
 
-    Ok(format!("{}.{}.{}", m, n, p))
+    Ok(format!("{}.{}.{}", major, minor, patch))
 }
 
 fn update_cargo_toml_version(toml_path: &Path, old_version: &str, new_version: &str) -> Result<()> {
     let content = fs::read_to_string(toml_path)
         .with_context(|| format!("failed to read {}", toml_path.display()))?;
 
-    let mut lines: Vec<String> = Vec::new();
+    let mut lines = Vec::new();
     let mut in_target_section = false;
     let mut updated = false;
 
     for line in content.lines() {
         let trimmed = line.trim();
 
-        // Track section headers
         if trimmed.starts_with('[') {
             in_target_section = trimmed == "[package]" || trimmed == "[workspace.package]";
         }
@@ -589,7 +586,7 @@ fn read_spec_version(spec_path: &Path) -> Result<Option<String>> {
 fn sync_spec_version(spec_path: &Path, new_version: &str) -> Result<()> {
     let content = fs::read_to_string(spec_path)
         .with_context(|| format!("failed to read {}", spec_path.display()))?;
-    let mut lines: Vec<String> = Vec::new();
+    let mut lines = Vec::new();
     let mut found = false;
     for line in content.lines() {
         if line.trim().starts_with("Version:") && !found {
@@ -611,6 +608,22 @@ fn sync_spec_version(spec_path: &Path, new_version: &str) -> Result<()> {
     Ok(())
 }
 
+fn sync_spec_if_needed(dry_run: bool, spec_path: &Path, new_version: &str) -> Result<bool> {
+    let current_version = read_spec_version(spec_path)?.ok_or_else(|| {
+        anyhow::anyhow!(
+            "RPM spec is missing a Version: field: {}",
+            spec_path.display()
+        )
+    })?;
+    if current_version == new_version {
+        return Ok(false);
+    }
+    if !dry_run {
+        sync_spec_version(spec_path, new_version)?;
+    }
+    Ok(true)
+}
+
 fn format_tag(format: &str, version: &str) -> String {
     format.replace("{version}", version)
 }
@@ -621,16 +634,25 @@ fn check_tag_exists(tag: &str) -> bool {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .map(|s| s.success())
+        .map(|status| status.success())
         .unwrap_or(false)
 }
 
-fn print_plan(plan: &ReleasePlan, spec_synced: bool, tag_exists: bool) {
+fn remote_tag_exists(remote: &str, tag: &str) -> Result<bool> {
+    let output = Command::new("git")
+        .args(["ls-remote", "--tags", remote, &format!("refs/tags/{}", tag)])
+        .output()
+        .context("failed to check remote tag")?;
+    Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
+}
+
+fn print_plan(plan: &ReleasePlan, spec_synced: bool) {
     let use_color = color_enabled();
     let packaging_rel = plan
         .packaging_root
         .strip_prefix(&plan.workspace_root)
         .unwrap_or(&plan.packaging_root);
+    let arch_list: Vec<&str> = plan.arches.iter().map(|arch| arch.as_str()).collect();
 
     println!();
     println!(
@@ -639,56 +661,52 @@ fn print_plan(plan: &ReleasePlan, spec_synced: bool, tag_exists: bool) {
         plan.package_name,
         plan.tag
     );
+    println!("     Packages: {}", plan.packages.join(", "));
     if plan.version_bumped {
-        println!("     Bump:    version -> {}", plan.version);
+        println!("     Bump:     version -> {}", plan.version);
     }
-    let arch_list: Vec<&str> = plan.arches.iter().map(|a| a.as_str()).collect();
-    println!("     Build:   {} (release)", arch_list.join(", "));
+    println!("     Build:    {} (release)", arch_list.join(", "));
     for arch in &plan.arches {
         println!(
-            "     RPM:     {}-{}-1.{}.rpm",
+            "     RPM:      {}-{}-1.{}.rpm",
+            plan.package_name,
+            plan.version,
+            arch.rpm_arch()
+        );
+        println!(
+            "     Stage:    {}/rpm/sources/{}-{}-1.{}.rpm",
+            packaging_rel.display(),
             plan.package_name,
             plan.version,
             arch.rpm_arch()
         );
     }
-    if !plan.no_stage {
-        for arch in &plan.arches {
-            println!(
-                "     Stage:   {}/rpm/sources/{}-{}-1.{}.rpm",
-                packaging_rel.display(),
-                plan.package_name,
-                plan.version,
-                arch.rpm_arch()
-            );
-        }
-    }
     if spec_synced {
-        println!("     Spec:    Version: updated to {}", plan.version);
-    }
-    if !plan.no_stage {
-        println!(
-            "     Commit:  \"Update release artifacts for {}\"",
-            plan.tag
-        );
+        println!("     Spec:     Version: updated to {}", plan.version);
     }
     println!(
-        "     Tag:     {} ({})",
-        plan.tag,
-        if tag_exists { "force-move" } else { "new" }
+        "     Commit:   \"{}\"",
+        if plan.version_bumped {
+            format!(
+                "Bump version to {} and update release artifacts for {}",
+                plan.version, plan.tag
+            )
+        } else {
+            format!("Update release artifacts for {}", plan.tag)
+        }
+    );
+    println!("     Tag:      {} (new)", plan.tag);
+    println!(
+        "     Push:     {}/{} + tag {}",
+        RELEASE_REMOTE, RELEASE_BRANCH, plan.tag
     );
     println!(
-        "     Push:    {}/{} + tag {}",
-        plan.remote, "main", plan.tag
+        "     Release:  GitHub release {} with RPM + SHA256 assets",
+        plan.tag
     );
-    if !plan.no_gh_release {
-        let asset_count = plan.arches.len() * 2; // RPMs + SHA256
-        println!(
-            "     Release: GitHub release {} with {} assets{}",
-            plan.tag,
-            asset_count,
-            if plan.draft { " (draft)" } else { "" }
-        );
+    println!("     Notes:");
+    for line in plan.notes.lines() {
+        println!("       {}", line);
     }
     println!();
 }
@@ -711,28 +729,11 @@ fn prompt_yn(question: &str, default_yes: bool) -> bool {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Phase B helpers
-// ---------------------------------------------------------------------------
-
-fn self_exe() -> Result<PathBuf> {
-    std::env::current_exe().context("failed to determine cargo-tizen binary path")
-}
-
-fn run_cargo_tizen(exe: &Path, args: &[&str]) -> Result<()> {
-    let status = Command::new(exe)
-        .args(args)
-        .status()
-        .with_context(|| format!("failed to run: cargo tizen {}", args.join(" ")))?;
-    if !status.success() {
-        bail!("cargo tizen {} failed", args.join(" "));
-    }
-    Ok(())
-}
-
 fn stage_rpms(ctx: &AppContext, plan: &ReleasePlan, rpms: &[PathBuf]) -> Result<()> {
     let use_color = color_enabled();
     let dest_dir = plan.packaging_root.join("rpm").join("sources");
+    fs::create_dir_all(&dest_dir)
+        .with_context(|| format!("failed to create {}", dest_dir.display()))?;
 
     for rpm in rpms {
         let filename = rpm
@@ -774,23 +775,16 @@ fn collect_rpm_artifacts(
         return Ok(Vec::new());
     }
 
-    // RPM filenames follow <name>-<version>-<release>.<arch>.rpm.
-    // Filter to only include RPMs whose filename contains the target version
-    // so stale RPMs from previous builds are not picked up.
     let version_needle = format!("-{}-", version);
-
     let mut rpms = Vec::new();
     for entry in fs::read_dir(&rpm_dir)
         .with_context(|| format!("failed to read RPM directory {}", rpm_dir.display()))?
     {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("rpm") {
-            let fname = path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy();
-            if fname.contains(&version_needle) {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("rpm") {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if name.contains(&version_needle) {
                 rpms.push(path);
             }
         }
@@ -816,64 +810,77 @@ fn generate_sha256_sidecar(rpm_path: &Path) -> Result<PathBuf> {
     Ok(sidecar_path)
 }
 
-fn generate_release_notes(plan: &ReleasePlan) -> Result<String> {
-    // --notes-file takes priority
-    if let Some(ref path) = plan.notes_file {
-        return fs::read_to_string(path)
-            .with_context(|| format!("failed to read notes file {}", path.display()));
-    }
+fn tag_match_pattern(tag_format: &str) -> String {
+    tag_format.replace("{version}", "*")
+}
 
-    // notes_command from config
-    if let Some(ref cmd) = plan.notes_command {
-        if !cmd.is_empty() {
-            let output = Command::new("sh")
-                .args(["-c", cmd])
-                .env("TAG", &plan.tag)
-                .env("VERSION", &plan.version)
-                .env("PACKAGE", &plan.package_name)
-                .current_dir(&plan.workspace_root)
-                .output()
-                .with_context(|| format!("failed to run notes command: {}", cmd))?;
-            if !output.status.success() {
-                bail!(
-                    "notes command failed: {}\n{}",
-                    cmd,
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-        }
-    }
-
-    // Default: git log between previous tag and HEAD
-    let output = Command::new("git")
-        .args(["log", "--pretty=- %s", &format!("{}..HEAD", plan.tag)])
-        .output();
-
-    // If the tag doesn't exist yet or git log fails, use all commits
-    let log_text = match output {
-        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout).trim().to_string(),
-        _ => {
-            // Fallback: recent commits
-            let output = Command::new("git")
-                .args(["log", "--pretty=- %s", "-20"])
-                .output()
-                .unwrap_or_else(|_| std::process::Output {
-                    status: std::process::ExitStatus::default(),
-                    stdout: Vec::new(),
-                    stderr: Vec::new(),
-                });
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
-        }
-    };
-
-    let notes = if log_text.is_empty() {
-        format!("Release {}", plan.tag)
+fn previous_release_tag(
+    workspace_root: &Path,
+    tag_format: &str,
+    current_tag: &str,
+) -> Result<Option<String>> {
+    let points_at_head = Command::new("git")
+        .args(["tag", "--points-at", "HEAD"])
+        .current_dir(workspace_root)
+        .output()
+        .context("failed to inspect tags on HEAD")?;
+    let tags_on_head = String::from_utf8_lossy(&points_at_head.stdout);
+    let start_rev = if tags_on_head.lines().any(|tag| tag.trim() == current_tag) {
+        "HEAD^"
     } else {
-        log_text
+        "HEAD"
     };
 
-    Ok(notes)
+    let output = Command::new("git")
+        .args([
+            "describe",
+            "--tags",
+            "--abbrev=0",
+            "--match",
+            &tag_match_pattern(tag_format),
+            start_rev,
+        ])
+        .current_dir(workspace_root)
+        .output()
+        .context("failed to determine previous release tag")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+
+    let tag = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if tag.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(tag))
+    }
+}
+
+fn generate_release_notes(
+    workspace_root: &Path,
+    tag_format: &str,
+    current_tag: &str,
+) -> Result<String> {
+    let previous_tag = previous_release_tag(workspace_root, tag_format, current_tag)?;
+
+    let mut cmd = Command::new("git");
+    cmd.arg("log")
+        .arg("--pretty=- %s")
+        .current_dir(workspace_root);
+    if let Some(ref previous_tag) = previous_tag {
+        cmd.arg(format!("{}..HEAD", previous_tag));
+    }
+
+    let output = cmd.output().context("failed to generate release notes")?;
+    if !output.status.success() {
+        bail!("git log failed while generating release notes");
+    }
+
+    let notes = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if notes.is_empty() {
+        Ok(format!("Release {}", current_tag))
+    } else {
+        Ok(notes)
+    }
 }
 
 fn git_commit(plan: &ReleasePlan, paths: &[String]) -> Result<()> {
@@ -889,14 +896,12 @@ fn git_commit(plan: &ReleasePlan, paths: &[String]) -> Result<()> {
         bail!("git add failed");
     }
 
-    // Check if there's anything to commit
-    let output = Command::new("git")
+    let staged = Command::new("git")
         .args(["diff", "--cached", "--quiet"])
         .current_dir(&plan.workspace_root)
         .status();
-    if let Ok(s) = output {
-        if s.success() {
-            // Nothing staged, skip commit
+    if let Ok(status) = staged {
+        if status.success() {
             return Ok(());
         }
     }
@@ -921,30 +926,20 @@ fn git_commit(plan: &ReleasePlan, paths: &[String]) -> Result<()> {
     Ok(())
 }
 
-fn git_tag_and_push(plan: &ReleasePlan, tag_exists: bool) -> Result<()> {
-    // Create or force-move tag
+fn git_tag_and_push(plan: &ReleasePlan) -> Result<()> {
     let tag_message = format!("Release {}", plan.tag);
-    if tag_exists {
-        let status = Command::new("git")
-            .args(["tag", "-fa", &plan.tag, "-m", &tag_message])
-            .status()
-            .context("failed to create git tag")?;
-        if !status.success() {
-            bail!("git tag failed");
-        }
-    } else {
-        let status = Command::new("git")
-            .args(["tag", "-a", &plan.tag, "-m", &tag_message])
-            .status()
-            .context("failed to create git tag")?;
-        if !status.success() {
-            bail!("git tag failed");
-        }
+    let status = Command::new("git")
+        .args(["tag", "-a", &plan.tag, "-m", &tag_message])
+        .current_dir(&plan.workspace_root)
+        .status()
+        .context("failed to create git tag")?;
+    if !status.success() {
+        bail!("git tag failed");
     }
 
-    // Push branch
     let status = Command::new("git")
-        .args(["push", &plan.remote, "HEAD"])
+        .args(["push", RELEASE_REMOTE, "HEAD"])
+        .current_dir(&plan.workspace_root)
         .status()
         .context("failed to push branch")?;
     if !status.success() {
@@ -955,14 +950,10 @@ fn git_tag_and_push(plan: &ReleasePlan, tag_exists: bool) -> Result<()> {
         );
     }
 
-    // Push tag (force if it existed)
     let tag_ref = format!("refs/tags/{}", plan.tag);
-    let mut push_args = vec!["push", &plan.remote, &tag_ref];
-    if tag_exists {
-        push_args.push("--force");
-    }
     let status = Command::new("git")
-        .args(&push_args)
+        .args(["push", RELEASE_REMOTE, &tag_ref])
+        .current_dir(&plan.workspace_root)
         .status()
         .context("failed to push tag")?;
     if !status.success() {
@@ -973,22 +964,20 @@ fn git_tag_and_push(plan: &ReleasePlan, tag_exists: bool) -> Result<()> {
 }
 
 fn gh_release_create(plan: &ReleasePlan, assets: &[PathBuf], notes: &str) -> Result<()> {
-    // Write notes to a temp file
     let notes_file =
         std::env::temp_dir().join(format!("cargo-tizen-notes-{}.md", std::process::id()));
     fs::write(&notes_file, notes).context("failed to write temp notes file")?;
 
-    // Check if release already exists
     let existing = Command::new("gh")
         .args(["release", "view", &plan.tag])
+        .current_dir(&plan.workspace_root)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
-        .map(|s| s.success())
+        .map(|status| status.success())
         .unwrap_or(false);
 
     if existing {
-        // Update existing release
         let status = Command::new("gh")
             .args([
                 "release",
@@ -999,6 +988,7 @@ fn gh_release_create(plan: &ReleasePlan, assets: &[PathBuf], notes: &str) -> Res
                 "--notes-file",
                 &notes_file.to_string_lossy(),
             ])
+            .current_dir(&plan.workspace_root)
             .status()
             .context("failed to run gh release edit")?;
         if !status.success() {
@@ -1006,7 +996,6 @@ fn gh_release_create(plan: &ReleasePlan, assets: &[PathBuf], notes: &str) -> Res
             bail!("gh release edit failed");
         }
 
-        // Upload assets with clobber
         let mut upload_args = vec![
             "release".to_string(),
             "upload".to_string(),
@@ -1018,6 +1007,7 @@ fn gh_release_create(plan: &ReleasePlan, assets: &[PathBuf], notes: &str) -> Res
         }
         let status = Command::new("gh")
             .args(&upload_args)
+            .current_dir(&plan.workspace_root)
             .status()
             .context("failed to run gh release upload")?;
         if !status.success() {
@@ -1025,7 +1015,6 @@ fn gh_release_create(plan: &ReleasePlan, assets: &[PathBuf], notes: &str) -> Res
             bail!("gh release upload failed");
         }
     } else {
-        // Create new release
         let mut create_args = vec![
             "release".to_string(),
             "create".to_string(),
@@ -1035,14 +1024,12 @@ fn gh_release_create(plan: &ReleasePlan, assets: &[PathBuf], notes: &str) -> Res
             "--notes-file".to_string(),
             notes_file.to_string_lossy().to_string(),
         ];
-        if plan.draft {
-            create_args.push("--draft".to_string());
-        }
         for asset in assets {
             create_args.push(asset.to_string_lossy().to_string());
         }
         let status = Command::new("gh")
             .args(&create_args)
+            .current_dir(&plan.workspace_root)
             .status()
             .context("failed to run gh release create")?;
         if !status.success() {
@@ -1058,10 +1045,10 @@ fn gh_release_create(plan: &ReleasePlan, assets: &[PathBuf], notes: &str) -> Res
     Ok(())
 }
 
-fn verify_release(plan: &ReleasePlan, rpms: &[PathBuf]) -> Result<()> {
-    // Verify tag resolves to HEAD
+fn verify_release(plan: &ReleasePlan, assets: &[PathBuf]) -> Result<()> {
     let head = Command::new("git")
         .args(["rev-parse", "HEAD"])
+        .current_dir(&plan.workspace_root)
         .output()
         .context("failed to get HEAD")?;
     let head_commit = String::from_utf8_lossy(&head.stdout).trim().to_string();
@@ -1069,9 +1056,10 @@ fn verify_release(plan: &ReleasePlan, rpms: &[PathBuf]) -> Result<()> {
     let remote_tag = Command::new("git")
         .args([
             "ls-remote",
-            &plan.remote,
+            RELEASE_REMOTE,
             &format!("refs/tags/{}^{{}}", plan.tag),
         ])
+        .current_dir(&plan.workspace_root)
         .output()
         .context("failed to check remote tag")?;
     let remote_output = String::from_utf8_lossy(&remote_tag.stdout);
@@ -1088,7 +1076,6 @@ fn verify_release(plan: &ReleasePlan, rpms: &[PathBuf]) -> Result<()> {
         );
     }
 
-    // Verify assets exist in release
     let output = Command::new("gh")
         .args([
             "release",
@@ -1099,14 +1086,15 @@ fn verify_release(plan: &ReleasePlan, rpms: &[PathBuf]) -> Result<()> {
             "--jq",
             ".assets[].name",
         ])
+        .current_dir(&plan.workspace_root)
         .output()
         .context("failed to check release assets")?;
     let release_assets = String::from_utf8_lossy(&output.stdout);
 
-    for rpm in rpms {
-        let name = rpm
+    for asset in assets {
+        let name = asset
             .file_name()
-            .map(|f| f.to_string_lossy().to_string())
+            .map(|file_name| file_name.to_string_lossy().to_string())
             .unwrap_or_default();
         if !release_assets.contains(&name) {
             bail!(
@@ -1122,15 +1110,14 @@ fn verify_release(plan: &ReleasePlan, rpms: &[PathBuf]) -> Result<()> {
 
 fn print_summary(ctx: &AppContext, plan: &ReleasePlan, assets: &[PathBuf]) {
     let use_color = color_enabled();
-
-    // Get release URL
     let url = Command::new("gh")
         .args([
             "release", "view", &plan.tag, "--json", "url", "--jq", ".url",
         ])
+        .current_dir(&plan.workspace_root)
         .output()
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .unwrap_or_default();
 
     println!();
@@ -1142,9 +1129,10 @@ fn print_summary(ctx: &AppContext, plan: &ReleasePlan, assets: &[PathBuf]) {
 
     let head = Command::new("git")
         .args(["rev-parse", "HEAD"])
+        .current_dir(&plan.workspace_root)
         .output()
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .unwrap_or_default();
     ctx.info(format!("  commit: {}", head));
 
@@ -1159,10 +1147,6 @@ fn print_summary(ctx: &AppContext, plan: &ReleasePlan, assets: &[PathBuf]) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// TOML types for Cargo.toml parsing
-// ---------------------------------------------------------------------------
-
 mod toml_types {
     use serde::Deserialize;
 
@@ -1174,6 +1158,7 @@ mod toml_types {
 
     #[derive(Debug, Deserialize)]
     pub struct PackageSection {
+        #[cfg_attr(not(test), allow(dead_code))]
         pub name: Option<String>,
         pub version: Option<String>,
     }
@@ -1187,11 +1172,18 @@ mod toml_types {
     pub struct WorkspacePackage {
         pub version: Option<String>,
     }
-}
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+    #[derive(Debug, Deserialize)]
+    pub struct CargoMetadata {
+        pub packages: Vec<MetadataPackage>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct MetadataPackage {
+        pub name: String,
+        pub manifest_path: String,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1206,8 +1198,8 @@ mod tests {
             "[package]\nname = \"test\"\nversion = \"1.2.3\"\n",
         )
         .unwrap();
-        let v = read_cargo_version(dir.path(), "test").unwrap();
-        assert_eq!(v, "1.2.3");
+        let version = read_cargo_version(dir.path(), "test").unwrap();
+        assert_eq!(version, "1.2.3");
     }
 
     #[test]
@@ -1218,8 +1210,8 @@ mod tests {
             "[workspace]\nmembers = [\"a\"]\n\n[workspace.package]\nversion = \"0.5.0\"\n",
         )
         .unwrap();
-        let v = read_cargo_version(dir.path(), "a").unwrap();
-        assert_eq!(v, "0.5.0");
+        let version = read_cargo_version(dir.path(), "a").unwrap();
+        assert_eq!(version, "0.5.0");
     }
 
     #[test]
@@ -1237,18 +1229,18 @@ mod tests {
     fn read_spec_version_found() {
         let dir = tempfile::tempdir().unwrap();
         let spec = dir.path().join("test.spec");
-        fs::write(&spec, "Name:    test\nVersion:        0.1.0\nRelease: 1\n").unwrap();
-        let v = read_spec_version(&spec).unwrap();
-        assert_eq!(v, Some("0.1.0".to_string()));
+        fs::write(&spec, "Name: test\nVersion:        0.1.0\nRelease: 1\n").unwrap();
+        let version = read_spec_version(&spec).unwrap();
+        assert_eq!(version, Some("0.1.0".to_string()));
     }
 
     #[test]
     fn read_spec_version_missing() {
         let dir = tempfile::tempdir().unwrap();
         let spec = dir.path().join("test.spec");
-        fs::write(&spec, "Name:    test\nRelease: 1\n").unwrap();
-        let v = read_spec_version(&spec).unwrap();
-        assert_eq!(v, None);
+        fs::write(&spec, "Name: test\nRelease: 1\n").unwrap();
+        let version = read_spec_version(&spec).unwrap();
+        assert_eq!(version, None);
     }
 
     #[test]
@@ -1267,41 +1259,20 @@ mod tests {
     }
 
     #[test]
-    fn validate_flags_both_no_errors() {
-        let args = GhReleaseArgs {
-            package: None,
-            arch: vec![],
-            bump: None,
-            remote: None,
-            tag_format: None,
-            branch: None,
-            force_tag: false,
-            sync_spec_version: false,
-            no_stage: true,
-            no_gh_release: true,
-            notes_file: None,
-            draft: false,
-            dry_run: false,
-            yes: false,
-        };
-        assert!(validate_flags(&args).is_err());
+    fn resolve_tag_format_defaults_to_v_prefix() {
+        assert_eq!(resolve_tag_format(None).unwrap(), "v{version}");
+    }
+
+    #[test]
+    fn resolve_tag_format_rejects_missing_placeholder() {
+        assert!(resolve_tag_format(Some("enterprise")).is_err());
     }
 
     #[test]
     fn validate_flags_ok() {
         let args = GhReleaseArgs {
-            package: None,
             arch: vec![],
             bump: None,
-            remote: None,
-            tag_format: None,
-            branch: None,
-            force_tag: false,
-            sync_spec_version: false,
-            no_stage: true,
-            no_gh_release: false,
-            notes_file: None,
-            draft: false,
             dry_run: false,
             yes: false,
         };
@@ -1318,7 +1289,6 @@ mod tests {
         assert!(sidecar.exists());
 
         let content = fs::read_to_string(&sidecar).unwrap();
-        // SHA256 of "hello world"
         assert!(
             content.starts_with("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
         );
@@ -1329,11 +1299,21 @@ mod tests {
     fn sync_spec_version_updates_field() {
         let dir = tempfile::tempdir().unwrap();
         let spec = dir.path().join("test.spec");
-        fs::write(&spec, "Name:    test\nVersion:        0.1.0\nRelease: 1\n").unwrap();
+        fs::write(&spec, "Name: test\nVersion:        0.1.0\nRelease: 1\n").unwrap();
         sync_spec_version(&spec, "0.2.0").unwrap();
         let content = fs::read_to_string(&spec).unwrap();
         assert!(content.contains("Version:        0.2.0"));
         assert!(!content.contains("0.1.0"));
+    }
+
+    #[test]
+    fn sync_spec_if_needed_skips_write_in_dry_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = dir.path().join("test.spec");
+        fs::write(&spec, "Name: test\nVersion:        0.1.0\nRelease: 1\n").unwrap();
+        let changed = sync_spec_if_needed(true, &spec, "0.2.0").unwrap();
+        assert!(changed);
+        assert!(fs::read_to_string(&spec).unwrap().contains("0.1.0"));
     }
 
     #[test]
@@ -1428,5 +1408,134 @@ mod tests {
         let (path, version) = resolve_cargo_version_path(dir.path(), "test").unwrap();
         assert_eq!(path, dir.path().join("Cargo.toml"));
         assert_eq!(version, "2.0.0");
+    }
+
+    #[test]
+    fn resolve_release_version_path_rejects_multiple_version_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"server\", \"cli\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("server")).unwrap();
+        fs::create_dir_all(dir.path().join("cli")).unwrap();
+        fs::write(
+            dir.path().join("server").join("Cargo.toml"),
+            "[package]\nname = \"server\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("cli").join("Cargo.toml"),
+            "[package]\nname = \"cli\"\nversion = \"2.0.0\"\n",
+        )
+        .unwrap();
+
+        let packages = vec![
+            SelectedPackage {
+                name: "server".to_string(),
+                source: package_select::PackageSource::Config,
+            },
+            SelectedPackage {
+                name: "cli".to_string(),
+                source: package_select::PackageSource::Config,
+            },
+        ];
+        assert!(resolve_release_version_path(dir.path(), &packages).is_err());
+    }
+
+    #[test]
+    fn generate_release_notes_uses_previous_release_tag_range() {
+        let dir = tempfile::tempdir().unwrap();
+        git(dir.path(), ["init"]);
+        git(dir.path(), ["config", "user.email", "dev@example.com"]);
+        git(dir.path(), ["config", "user.name", "Dev"]);
+
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("src.rs"), "fn main() {}\n").unwrap();
+        git(dir.path(), ["add", "."]);
+        git(dir.path(), ["commit", "-m", "initial"]);
+        git(dir.path(), ["tag", "-a", "v0.1.0", "-m", "Release v0.1.0"]);
+
+        fs::write(
+            dir.path().join("src.rs"),
+            "fn main() { println!(\"hi\"); }\n",
+        )
+        .unwrap();
+        git(dir.path(), ["add", "."]);
+        git(dir.path(), ["commit", "-m", "feature one"]);
+
+        fs::write(dir.path().join("README.md"), "demo\n").unwrap();
+        git(dir.path(), ["add", "."]);
+        git(dir.path(), ["commit", "-m", "feature two"]);
+
+        let notes = generate_release_notes(dir.path(), "v{version}", "v0.2.0").unwrap();
+        assert!(notes.contains("- feature one"));
+        assert!(notes.contains("- feature two"));
+        assert!(!notes.contains("initial"));
+    }
+
+    #[test]
+    fn generate_release_notes_respects_custom_tag_namespace() {
+        let dir = tempfile::tempdir().unwrap();
+        git(dir.path(), ["init"]);
+        git(dir.path(), ["config", "user.email", "dev@example.com"]);
+        git(dir.path(), ["config", "user.name", "Dev"]);
+
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("src.rs"), "fn main() {}\n").unwrap();
+        git(dir.path(), ["add", "."]);
+        git(dir.path(), ["commit", "-m", "initial"]);
+        git(
+            dir.path(),
+            [
+                "tag",
+                "-a",
+                "upstream-v0.1.0",
+                "-m",
+                "Release upstream-v0.1.0",
+            ],
+        );
+        git(
+            dir.path(),
+            [
+                "tag",
+                "-a",
+                "enterprise-v0.1.0",
+                "-m",
+                "Release enterprise-v0.1.0",
+            ],
+        );
+
+        fs::write(
+            dir.path().join("src.rs"),
+            "fn main() { println!(\"enterprise\"); }\n",
+        )
+        .unwrap();
+        git(dir.path(), ["add", "."]);
+        git(dir.path(), ["commit", "-m", "enterprise fix"]);
+
+        let notes =
+            generate_release_notes(dir.path(), "enterprise-v{version}", "enterprise-v0.2.0")
+                .unwrap();
+        assert!(notes.contains("- enterprise fix"));
+        assert!(!notes.contains("initial"));
+    }
+
+    fn git(dir: &Path, args: impl IntoIterator<Item = &'static str>) {
+        let status = Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 }

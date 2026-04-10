@@ -32,7 +32,7 @@ pub fn collect_extra_sources(sources_dir: &Path, binary_names: &[&str]) -> Resul
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
 
-        if name.starts_with('.') {
+        if name.starts_with('.') || name.ends_with(".rpm") {
             continue;
         }
 

@@ -129,6 +129,19 @@ Notes:
   Persistent user settings live in ~/.config/cargo-tizen/config.toml.
   Command-line flags still override stored defaults for the current invocation.";
 
+const GH_RELEASE_AFTER_HELP: &str = "\
+Examples:
+  cargo tizen gh-release
+  cargo tizen gh-release --dry-run
+  cargo tizen gh-release --yes -A aarch64
+  cargo tizen gh-release --no-stage --draft
+
+Notes:
+  gh-release always shows a plan and asks for confirmation before executing.
+  Use --yes to skip confirmation (for scripts/CI).
+  Use --dry-run to see the plan without executing.
+  Requires gh CLI (https://cli.github.com) to be installed and authenticated.";
+
 #[derive(Debug, Parser)]
 #[command(
     name = "cargo-tizen",
@@ -225,6 +238,14 @@ pub enum Command {
         after_long_help = CONFIG_AFTER_HELP
     )]
     Config(ConfigArgs),
+    #[command(
+        name = "gh-release",
+        display_order = 12,
+        about = "Cross-build, package, and publish a GitHub release with RPM assets",
+        after_help = GH_RELEASE_AFTER_HELP,
+        after_long_help = GH_RELEASE_AFTER_HELP
+    )]
+    GhRelease(GhReleaseArgs),
 }
 
 #[derive(Debug, Clone, Args)]
@@ -498,6 +519,71 @@ pub struct ConfigArgs {
 }
 
 #[derive(Debug, Clone, Args)]
+pub struct GhReleaseArgs {
+    #[arg(
+        short = 'p',
+        long,
+        help = "Workspace member to release when running from a workspace root"
+    )]
+    pub package: Option<String>,
+
+    #[arg(
+        short = 'A',
+        long,
+        num_args = 1..,
+        help = "Target architectures to release (default: armv7l aarch64)"
+    )]
+    pub arch: Vec<Arch>,
+
+    #[arg(long, help = "Git remote (default: origin)")]
+    pub remote: Option<String>,
+
+    #[arg(
+        long,
+        value_name = "FMT",
+        help = "Tag format with {version} placeholder (default: v{version})"
+    )]
+    pub tag_format: Option<String>,
+
+    #[arg(long, help = "Required release branch (default: main)")]
+    pub branch: Option<String>,
+
+    #[arg(long, help = "Force-move an existing tag without prompting")]
+    pub force_tag: bool,
+
+    #[arg(long, help = "Auto-update spec Version: field without prompting")]
+    pub sync_spec_version: bool,
+
+    #[arg(long, help = "Skip staging binaries to tizen/<arch>/")]
+    pub no_stage: bool,
+
+    #[arg(
+        long,
+        help = "Skip GitHub release creation (stage + commit + tag only)"
+    )]
+    pub no_gh_release: bool,
+
+    #[arg(
+        long,
+        value_name = "PATH",
+        help = "Use this file as release notes instead of auto-generating"
+    )]
+    pub notes_file: Option<PathBuf>,
+
+    #[arg(long, help = "Create the GitHub release as a draft")]
+    pub draft: bool,
+
+    #[arg(long, help = "Show the execution plan and exit without executing")]
+    pub dry_run: bool,
+
+    #[arg(
+        long,
+        help = "Skip the confirmation prompt and all interactive decisions"
+    )]
+    pub yes: bool,
+}
+
+#[derive(Debug, Clone, Args)]
 pub struct CleanArgs {
     #[arg(long, help = "Remove cached sysroots")]
     pub sysroot: bool,
@@ -550,27 +636,27 @@ mod tests {
 
         let init = line_offset(
             &help,
-            "  init     Create starter config and packaging files for the current project",
+            "  init        Create starter config and packaging files for the current project",
         );
         let doctor = line_offset(
             &help,
-            "  doctor   Check SDK, toolchain, sysroot, and packaging readiness",
+            "  doctor      Check SDK, toolchain, sysroot, and packaging readiness",
         );
         let fix = line_offset(
             &help,
-            "  fix      Install missing Rust targets and prepare missing sysroots",
+            "  fix         Install missing Rust targets and prepare missing sysroots",
         );
         let build = line_offset(
             &help,
-            "  build    Cross-build the current Rust project for a Tizen target",
+            "  build       Cross-build the current Rust project for a Tizen target",
         );
         let install = line_offset(
             &help,
-            "  install  Build or reuse a TPK and install it on a connected device",
+            "  install     Build or reuse a TPK and install it on a connected device",
         );
         let setup = line_offset(
             &help,
-            "  setup    Prepare and cache a Tizen sysroot for cross-compilation",
+            "  setup       Prepare and cache a Tizen sysroot for cross-compilation",
         );
 
         assert!(init < doctor);

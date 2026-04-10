@@ -9,6 +9,7 @@ mod context;
 mod device;
 mod doctor;
 mod fix;
+mod gh_release;
 mod init_cmd;
 mod install_cmd;
 mod output;
@@ -63,6 +64,7 @@ fn run() -> Result<()> {
         Command::Fix(args) => fix::run_fix(&ctx, &args)?,
         Command::Clean(args) => clean::run_clean(&ctx, &args)?,
         Command::Config(args) => config_cmd::run_config(&ctx, &args)?,
+        Command::GhRelease(args) => gh_release::run_gh_release(&ctx, &args)?,
     }
 
     Ok(())

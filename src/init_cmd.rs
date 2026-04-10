@@ -31,6 +31,17 @@ pub fn run_init(ctx: &AppContext, args: &InitArgs) -> Result<()> {
             &render_rpm_spec(&package),
             args.force,
         )?);
+        let sources_gitkeep = packaging.root().join("rpm").join("sources").join(".gitkeep");
+        if !sources_gitkeep.exists() {
+            if let Some(parent) = sources_gitkeep.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&sources_gitkeep, "")?;
+            outcomes.push(ScaffoldOutcome {
+                path: sources_gitkeep,
+                status: ScaffoldStatus::Created,
+            });
+        }
     }
 
     if targets.tpk {

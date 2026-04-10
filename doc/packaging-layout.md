@@ -54,10 +54,10 @@ Those locations are no longer loaded automatically. Move the manifest to `<packa
 ## Multi-package RPM
 
 Workspaces with multiple binary crates can bundle all binaries into a single RPM.
-Set `[rpm].packages` in `.cargo-tizen.toml`:
+Set `[package].packages` in `.cargo-tizen.toml`:
 
 ```toml
-[rpm]
+[package]
 packages = ["my-server", "my-cli"]
 ```
 
@@ -79,5 +79,5 @@ The repo includes example Cargo projects that also act as regression fixtures:
 
 - `templates/reference-projects/rpm-app` — minimal binary-only RPM
 - `templates/reference-projects/rpm-service-app` — RPM with extra sources (systemd unit, env file)
-- `templates/reference-projects/rpm-multi-package` — workspace with 2 binary crates + 1 library, multi-binary RPM via `[rpm].packages`
+- `templates/reference-projects/rpm-multi-package` — workspace with 2 binary crates + 1 library, multi-binary RPM via `[package].packages`
 - `templates/reference-projects/tpk-service-app`

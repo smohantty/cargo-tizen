@@ -141,7 +141,7 @@ For workspaces with multiple binary crates that should be packaged into a single
 list them in `.cargo-tizen.toml`:
 
 ```toml
-[rpm]
+[package]
 packages = ["my-server", "my-cli"]
 ```
 
@@ -220,7 +220,7 @@ When `-A` / `--arch` is omitted, `cargo-tizen` auto-selects:
 
 `.cargo-tizen.toml` in your project root is optional. Add it only when you need overrides.
 
-In a multi-package workspace, set `[default].package = "member-name"` if you want
+In a multi-package workspace, set `[package].packages = ["member-name"]` if you want
 `rpm`, `tpk`, and `install` to package the same member by default without repeating
 `-p/--package` on every command.
 
@@ -236,10 +236,12 @@ Full example:
 ```toml
 [default]
 arch = "armv7l"
-package = "my-app"
 profile = "mobile"
 platform_version = "10.0"
 packaging_dir = "./packaging"
+
+[package]
+packages = ["my-app"]
 
 [sdk]
 root = "/path/to/tizen-studio"
@@ -255,7 +257,7 @@ linker = "aarch64-linux-gnu-gcc"
 
 - The packaged binary name must match `[package].name` in `Cargo.toml`.
 - Multi-bin and custom `[[bin]]` names are not yet supported.
-- Multi-package workspaces must pick a member with `-p/--package` or `[default].package` in `.cargo-tizen.toml`.
+- Multi-package workspaces must pick a member with `-p/--package` or `[package].packages` in `.cargo-tizen.toml`.
 - `cargo tizen install` deploys TPK only (not RPM).
 
 ## TPK Signing

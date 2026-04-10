@@ -80,7 +80,6 @@ fn show_config(ctx: &AppContext) {
     // [default]
     ctx.info(format!("\n{}", label("[default]")));
     show_field(ctx, "arch", cfg.default.arch.as_deref());
-    show_field(ctx, "package", cfg.default.package.as_deref());
     show_field(ctx, "profile", cfg.default.profile.as_deref());
     show_field(
         ctx,
@@ -98,11 +97,9 @@ fn show_config(ctx: &AppContext) {
     ctx.info(format!("\n{}", label("[cache]")));
     ctx.info(format!("  {} = {}", "root", cfg.cache_root().display()));
 
-    // [rpm]
-    ctx.info(format!("\n{}", label("[rpm]")));
-    show_field(ctx, "packager", cfg.rpm.packager.as_deref());
-    show_field(ctx, "license", cfg.rpm.license.as_deref());
-    if let Some(pkgs) = cfg.rpm.packages() {
+    // [package]
+    ctx.info(format!("\n{}", label("[package]")));
+    if let Some(pkgs) = cfg.package_names() {
         ctx.info(format!("  packages = {:?}", pkgs));
     } else {
         show_field::<&str>(ctx, "packages", None);

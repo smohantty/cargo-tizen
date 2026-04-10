@@ -301,6 +301,9 @@ platform_version = "10.0"
 provider = "rootstrap"
 packaging_dir = "./packaging"
 
+[package]
+packages = ["crate-server", "crate-cli"]  # first entry is the default package; rpm stages all entries
+
 [arch.armv7l]
 rust_target = "armv7-unknown-linux-gnueabi"
 linker = "/opt/tizen/toolchains/armv7l/bin/arm-linux-gnueabi-gcc"
@@ -320,11 +323,6 @@ root = "/home/you/tizen-studio"
 
 [cache]
 root = "~/.cache/cargo-tizen/sysroots"
-
-[rpm]
-packager = "Your Team <dev@example.com>"
-license = "Apache-2.0"
-packages = ["crate-server", "crate-cli"]  # multi-binary RPM: stage these packages
 
 [tpk]
 sign = "my_profile"
@@ -453,10 +451,10 @@ Implementation detail:
 Given `cargo tizen rpm -A aarch64`:
 1. Resolve packages:
    - CLI `-p <name>`: single package override.
-   - `[rpm].packages` from `.cargo-tizen.toml`: multiple packages for multi-binary RPM.
-   - `[default].package` or root `[package].name`: single-package fallback.
+   - `[package].packages` from `.cargo-tizen.toml`: one or more packages.
+   - Root `[package].name` from `Cargo.toml`: single-package fallback.
 2. Validate packaging inputs:
-   - `<packaging-dir>/rpm/<first-package-name>.spec` (multi-package uses first entry in `[rpm].packages`)
+   - `<packaging-dir>/rpm/<first-package-name>.spec` (multi-package uses first entry in `[package].packages`)
    - fail if it does not exist
    - if `<packaging-dir>/rpm/sources/` exists, require it to be a directory
 3. Run build phase unless `--no-build`. For multiple packages, passes `-p <name>` per package.

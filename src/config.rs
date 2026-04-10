@@ -14,13 +14,13 @@ pub struct Config {
     pub default: DefaultConfig,
 
     #[serde(default)]
+    pub package: PackageConfig,
+
+    #[serde(default)]
     pub arch: HashMap<String, ArchConfig>,
 
     #[serde(default)]
     pub cache: CacheConfig,
-
-    #[serde(default)]
-    pub rpm: RpmConfig,
 
     #[serde(default)]
     pub sdk: SdkConfig,
@@ -32,11 +32,15 @@ pub struct Config {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DefaultConfig {
     pub arch: Option<String>,
-    pub package: Option<String>,
     pub profile: Option<String>,
     pub platform_version: Option<String>,
     pub provider: Option<String>,
     pub packaging_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PackageConfig {
+    pub packages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -54,13 +58,6 @@ pub struct ArchConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CacheConfig {
     pub root: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RpmConfig {
-    pub packager: Option<String>,
-    pub license: Option<String>,
-    pub packages: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -101,6 +98,7 @@ impl Config {
 
     fn merge(&mut self, other: Self) {
         self.default.merge(other.default);
+        self.package.merge(other.package);
 
         for (key, incoming) in other.arch {
             if let Some(existing) = self.arch.get_mut(&key) {
@@ -111,7 +109,6 @@ impl Config {
         }
 
         self.cache.merge(other.cache);
-        self.rpm.merge(other.rpm);
         self.sdk.merge(other.sdk);
         self.tpk.merge(other.tpk);
     }
@@ -141,8 +138,13 @@ impl Config {
         self.default.packaging_dir.as_deref().map(expand_tilde)
     }
 
-    pub fn default_package(&self) -> Option<&str> {
-        self.default.package.as_deref()
+    pub fn package_names(&self) -> Option<&[String]> {
+        self.package.packages()
+    }
+
+    pub fn primary_package(&self) -> Option<&str> {
+        self.package_names()
+            .and_then(|packages| packages.first().map(String::as_str))
     }
 
     pub fn linker_for(&self, arch: Arch) -> String {
@@ -228,9 +230,6 @@ impl DefaultConfig {
         if other.arch.is_some() {
             self.arch = other.arch;
         }
-        if other.package.is_some() {
-            self.package = other.package;
-        }
         if other.profile.is_some() {
             self.profile = other.profile;
         }
@@ -242,6 +241,21 @@ impl DefaultConfig {
         }
         if other.packaging_dir.is_some() {
             self.packaging_dir = other.packaging_dir;
+        }
+    }
+}
+
+impl PackageConfig {
+    fn merge(&mut self, other: Self) {
+        if other.packages.is_some() {
+            self.packages = other.packages;
+        }
+    }
+
+    pub fn packages(&self) -> Option<&[String]> {
+        match &self.packages {
+            Some(v) if !v.is_empty() => Some(v),
+            _ => None,
         }
     }
 }
@@ -279,27 +293,6 @@ impl CacheConfig {
     fn merge(&mut self, other: Self) {
         if other.root.is_some() {
             self.root = other.root;
-        }
-    }
-}
-
-impl RpmConfig {
-    fn merge(&mut self, other: Self) {
-        if other.packager.is_some() {
-            self.packager = other.packager;
-        }
-        if other.license.is_some() {
-            self.license = other.license;
-        }
-        if other.packages.is_some() {
-            self.packages = other.packages;
-        }
-    }
-
-    pub fn packages(&self) -> Option<&[String]> {
-        match &self.packages {
-            Some(v) if !v.is_empty() => Some(v),
-            _ => None,
         }
     }
 }
@@ -345,43 +338,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rpm_packages_none_when_omitted() {
-        let config: Config = basic_toml::from_str("[rpm]\npackager = \"test\"\n").unwrap();
-        assert!(config.rpm.packages.is_none());
-        assert!(config.rpm.packages().is_none());
+    fn package_packages_none_when_omitted() {
+        let config: Config = basic_toml::from_str("[default]\narch = \"aarch64\"\n").unwrap();
+        assert!(config.package.packages.is_none());
+        assert!(config.package_names().is_none());
     }
 
     #[test]
-    fn rpm_packages_some_when_present() {
-        let config: Config = basic_toml::from_str("[rpm]\npackages = [\"a\", \"b\"]\n").unwrap();
+    fn package_packages_some_when_present() {
+        let config: Config =
+            basic_toml::from_str("[package]\npackages = [\"a\", \"b\"]\n").unwrap();
         assert_eq!(
-            config.rpm.packages,
+            config.package.packages,
             Some(vec!["a".to_string(), "b".to_string()])
         );
         assert_eq!(
-            config.rpm.packages(),
+            config.package_names(),
             Some(["a".to_string(), "b".to_string()].as_slice())
         );
+        assert_eq!(config.primary_package(), Some("a"));
     }
 
     #[test]
-    fn rpm_packages_empty_treated_as_unset() {
-        let config: Config = basic_toml::from_str("[rpm]\npackages = []\n").unwrap();
-        assert_eq!(config.rpm.packages, Some(vec![]));
-        // The accessor treats empty as unset
-        assert!(config.rpm.packages().is_none());
+    fn package_packages_empty_treated_as_unset() {
+        let config: Config = basic_toml::from_str("[package]\npackages = []\n").unwrap();
+        assert_eq!(config.package.packages, Some(vec![]));
+        assert!(config.package_names().is_none());
+        assert!(config.primary_package().is_none());
     }
 
     #[test]
-    fn rpm_config_merge_project_replaces_user() {
-        let mut base = RpmConfig {
-            packager: Some("user".into()),
-            license: None,
+    fn package_config_merge_project_replaces_user() {
+        let mut base = PackageConfig {
             packages: Some(vec!["old".into()]),
         };
-        let other = RpmConfig {
-            packager: None,
-            license: None,
+        let other = PackageConfig {
             packages: Some(vec!["new-a".into(), "new-b".into()]),
         };
         base.merge(other);
@@ -389,18 +380,14 @@ mod tests {
             base.packages,
             Some(vec!["new-a".to_string(), "new-b".to_string()])
         );
-        // packager preserved since other didn't set it
-        assert_eq!(base.packager, Some("user".to_string()));
     }
 
     #[test]
-    fn rpm_config_merge_preserves_when_project_omits() {
-        let mut base = RpmConfig {
-            packager: None,
-            license: None,
+    fn package_config_merge_preserves_when_project_omits() {
+        let mut base = PackageConfig {
             packages: Some(vec!["keep".into()]),
         };
-        let other = RpmConfig::default();
+        let other = PackageConfig::default();
         base.merge(other);
         assert_eq!(base.packages, Some(vec!["keep".to_string()]));
     }

@@ -55,11 +55,8 @@ pub fn resolve_for_command(
         });
     }
 
-    if let Some(name) = ctx.config.default_package() {
-        return Ok(SelectedPackage {
-            name: name.to_string(),
-            source: PackageSource::Config,
-        });
+    if let Some(packages) = configured_packages(ctx)? {
+        return Ok(packages[0].clone());
     }
 
     let manifest_path = ctx.workspace_root.join("Cargo.toml");
@@ -70,7 +67,7 @@ pub fn resolve_for_command(
         }),
         ManifestKind::Workspace => bail!(workspace_selection_message(&manifest_path, command_name)),
         ManifestKind::Unknown => bail!(
-            "failed to determine package name from {}\nexpected a root [package].name, pass -p/--package <member>, or set [default].package in .cargo-tizen.toml",
+            "failed to determine package name from {}\nexpected a root [package].name, pass -p/--package <member>, or set [package].packages in .cargo-tizen.toml",
             manifest_path.display()
         ),
     }
@@ -97,10 +94,9 @@ pub fn inspect_manifest(path: &Path) -> Result<ManifestKind> {
 ///
 /// Resolution priority:
 /// 1. CLI `-p <name>` → single package override
-/// 2. `[rpm].packages` from config → multiple packages
-/// 3. `[default].package` from config → single package
-/// 4. Root `[package].name` from Cargo.toml → single package auto-detect
-/// 5. Workspace root with no selection → error
+/// 2. `[package].packages` from config → one or more packages
+/// 3. Root `[package].name` from Cargo.toml → single package auto-detect
+/// 4. Workspace root with no selection → error
 pub fn resolve_rpm_packages(
     ctx: &AppContext,
     explicit_package: Option<&str>,
@@ -113,49 +109,58 @@ pub fn resolve_rpm_packages(
         }]);
     }
 
-    // 2. [rpm].packages from config
-    if let Some(packages) = ctx.config.rpm.packages() {
-        let mut seen = std::collections::HashSet::new();
-        let mut result = Vec::with_capacity(packages.len());
-        for name in packages {
-            let trimmed = name.trim();
-            if trimmed.is_empty() {
-                bail!(
-                    "empty package name in [rpm].packages\n\
-                     each entry must be a non-empty Cargo package name"
-                );
-            }
-            if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
-                bail!(
-                    "invalid package name `{name}` in [rpm].packages\n\
-                     package names must not contain path separators or `..`"
-                );
-            }
-            if !seen.insert(name.as_str()) {
-                bail!(
-                    "duplicate package `{name}` in [rpm].packages\n\
-                     each entry must be unique"
-                );
-            }
-            result.push(SelectedPackage {
-                name: name.clone(),
-                source: PackageSource::Config,
-            });
-        }
-        return Ok(result);
+    // 2. [package].packages from config
+    if let Some(packages) = configured_packages(ctx)? {
+        return Ok(packages);
     }
 
-    // 3-5. Fall through to existing single-package resolution
+    // 3-4. Fall through to existing single-package resolution
     resolve_for_command(ctx, None, "rpm").map(|pkg| vec![pkg])
 }
 
 pub fn workspace_selection_message(path: &Path, command_name: &str) -> String {
     format!(
-        "workspace root detected at {}\n`cargo tizen {}` packages one workspace member at a time\nrerun with: cargo tizen {} -p <member>\nor set a default in .cargo-tizen.toml:\n[default]\npackage = \"<member>\"\nor for multi-binary RPM, list all packages:\n[rpm]\npackages = [\"<member-a>\", \"<member-b>\"]",
+        "workspace root detected at {}\n`cargo tizen {}` needs a package selection\nrerun with: cargo tizen {} -p <member>\nor set packages in .cargo-tizen.toml:\n[package]\npackages = [\"<member>\"]\nor for multi-binary RPM:\n[package]\npackages = [\"<member-a>\", \"<member-b>\"]",
         path.display(),
         command_name,
         command_name
     )
+}
+
+fn configured_packages(ctx: &AppContext) -> Result<Option<Vec<SelectedPackage>>> {
+    let Some(packages) = ctx.config.package_names() else {
+        return Ok(None);
+    };
+
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::with_capacity(packages.len());
+    for name in packages {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            bail!(
+                "empty package name in [package].packages\n\
+                 each entry must be a non-empty Cargo package name"
+            );
+        }
+        if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
+            bail!(
+                "invalid package name `{name}` in [package].packages\n\
+                 package names must not contain path separators or `..`"
+            );
+        }
+        if !seen.insert(name.as_str()) {
+            bail!(
+                "duplicate package `{name}` in [package].packages\n\
+                 each entry must be unique"
+            );
+        }
+        result.push(SelectedPackage {
+            name: name.clone(),
+            source: PackageSource::Config,
+        });
+    }
+
+    Ok(Some(result))
 }
 
 #[cfg(test)]
@@ -207,12 +212,12 @@ mod tests {
         let message = workspace_selection_message(Path::new("/tmp/demo/Cargo.toml"), "rpm");
         assert!(message.contains("workspace root detected"));
         assert!(message.contains("cargo tizen rpm -p <member>"));
-        assert!(message.contains("[default]"));
-        assert!(message.contains("package = \"<member>\""));
+        assert!(message.contains("[package]"));
+        assert!(message.contains("packages = [\"<member>\"]"));
     }
 
     #[test]
-    fn resolve_for_command_uses_default_package_from_config() {
+    fn resolve_for_command_uses_first_configured_package() {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("Cargo.toml"),
@@ -221,7 +226,7 @@ mod tests {
         .unwrap();
 
         let mut config = Config::default();
-        config.default.package = Some("rsdbd".to_string());
+        config.package.packages = Some(vec!["rsdbd".to_string(), "extra".to_string()]);
         let ctx = AppContext {
             config,
             workspace_root: dir.path().to_path_buf(),
@@ -242,7 +247,7 @@ mod tests {
         .unwrap();
 
         let mut config = Config::default();
-        config.rpm.packages = Some(vec!["a".into(), "b".into()]);
+        config.package.packages = Some(vec!["a".into(), "b".into()]);
         let ctx = AppContext {
             config,
             workspace_root: dir.path().to_path_buf(),
@@ -264,7 +269,7 @@ mod tests {
         .unwrap();
 
         let mut config = Config::default();
-        config.rpm.packages = Some(vec!["a".into(), "b".into()]);
+        config.package.packages = Some(vec!["a".into(), "b".into()]);
         let ctx = AppContext {
             config,
             workspace_root: dir.path().to_path_buf(),
@@ -278,28 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_rpm_packages_config_over_default_package() {
-        let dir = tempdir().unwrap();
-        fs::write(
-            dir.path().join("Cargo.toml"),
-            "[workspace]\nmembers = [\"a\", \"b\"]\n",
-        )
-        .unwrap();
-
-        let mut config = Config::default();
-        config.default.package = Some("old-default".into());
-        config.rpm.packages = Some(vec!["a".into(), "b".into()]);
-        let ctx = AppContext {
-            config,
-            workspace_root: dir.path().to_path_buf(),
-        };
-
-        let result = resolve_rpm_packages(&ctx, None).unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].name, "a");
-    }
-
-    #[test]
     fn resolve_rpm_packages_empty_config_falls_through() {
         let dir = tempdir().unwrap();
         fs::write(
@@ -309,7 +292,7 @@ mod tests {
         .unwrap();
 
         let mut config = Config::default();
-        config.rpm.packages = Some(vec![]); // empty = treated as unset
+        config.package.packages = Some(vec![]); // empty = treated as unset
         let ctx = AppContext {
             config,
             workspace_root: dir.path().to_path_buf(),
@@ -331,7 +314,7 @@ mod tests {
         .unwrap();
 
         let mut config = Config::default();
-        config.rpm.packages = Some(vec!["same".into(), "same".into()]);
+        config.package.packages = Some(vec!["same".into(), "same".into()]);
         let ctx = AppContext {
             config,
             workspace_root: dir.path().to_path_buf(),

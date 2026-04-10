@@ -271,10 +271,10 @@ fn build_packaging_section(ctx: &AppContext) -> Section {
         return sec;
     }
 
-    let package_name = match ctx.config.default_package() {
+    let package_name = match ctx.config.primary_package() {
         Some(name) => {
             sec.ok(format!(
-                "selected package: {} (from [default].package)",
+                "selected package: {} (from [package].packages)",
                 name
             ));
             name.to_string()
@@ -283,7 +283,7 @@ fn build_packaging_section(ctx: &AppContext) -> Section {
             Ok(ManifestKind::Package(name)) => name,
             Ok(ManifestKind::Workspace) => {
                 sec.warn(
-                    "workspace manifest detected; set [default].package or pass -p <member> to rpm/tpk/install",
+                    "workspace manifest detected; set [package].packages or pass -p <member> to rpm/tpk/install",
                 );
                 return sec;
             }

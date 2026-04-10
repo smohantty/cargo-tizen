@@ -60,7 +60,7 @@ Examples:
 
 Notes:
   The RPM spec must already exist at <packaging-dir>/rpm/<package-name>.spec.
-  Use -p or [default].package when packaging a workspace member.";
+  Use -p or [package].packages when packaging a workspace member.";
 
 const TPK_AFTER_HELP: &str = "\
 Examples:

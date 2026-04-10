@@ -5,4 +5,4 @@ profile = "mobile"
 platform_version = "10.0"
 
 [package]
-packages = ["hello-server", "hello-cli"]
+packages = ["hello-syslibs"]

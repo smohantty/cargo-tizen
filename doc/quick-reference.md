@@ -74,6 +74,6 @@ cargo tizen rpm -A armv7l --release
 # Build, package, and install TPK
 cargo tizen install -A armv7l --release
 
-# Multi-package RPM (set [rpm].packages in .cargo-tizen.toml)
+# Multi-package RPM (set [package].packages in .cargo-tizen.toml)
 cargo tizen rpm -A armv7l --release
 ```

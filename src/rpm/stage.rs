@@ -75,7 +75,7 @@ pub fn stage_binaries_from_target_dir(
                 "expected built binary was not found: {}\n\
                  cargo-tizen expects the binary name to match [package].name (`{}`)\n\
                  if this package uses a custom [[bin]] name or is a library-only crate,\n\
-                 remove it from [rpm].packages",
+                 remove it from [package].packages",
                 source_binary.display(),
                 pkg.name
             );

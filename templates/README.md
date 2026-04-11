@@ -8,3 +8,7 @@ These projects are the packaging contract for `cargo-tizen`.
 
 The codebase tests read these projects directly, so they are both user-facing examples and regression fixtures.
 
+See also:
+
+- `docs/packaging-layout.md`
+- `docs/known-gaps.md`

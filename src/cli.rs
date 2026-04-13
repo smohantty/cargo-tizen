@@ -574,9 +574,9 @@ pub struct CleanArgs {
 
 #[cfg(test)]
 mod tests {
-    use clap::CommandFactory;
+    use clap::{CommandFactory, Parser};
 
-    use super::Cli;
+    use super::*;
 
     fn render_help(command: &mut clap::Command) -> String {
         let mut output = Vec::new();
@@ -650,5 +650,137 @@ mod tests {
         assert!(help.contains("Extra arguments passed through to cargo build after --"));
         assert!(help.contains("cargo tizen build -A aarch64 --release"));
         assert!(help.contains("cargo tizen build -A armv7l -- --features my_feature"));
+    }
+
+    #[test]
+    fn parses_build_with_arch_and_release() {
+        let cli = Cli::try_parse_from(["cargo-tizen", "build", "-A", "armv7l", "--release"])
+            .expect("valid build args");
+        match cli.command {
+            Command::Build(args) => {
+                assert_eq!(args.arch, Some(crate::arch::Arch::Armv7l));
+                assert!(args.release);
+            }
+            _ => panic!("expected Build command"),
+        }
+    }
+
+    #[test]
+    fn parses_build_with_forwarded_cargo_args() {
+        let cli = Cli::try_parse_from([
+            "cargo-tizen",
+            "build",
+            "-A",
+            "aarch64",
+            "--",
+            "--features",
+            "my_feature",
+        ])
+        .expect("valid build args with forwarded args");
+        match cli.command {
+            Command::Build(args) => {
+                assert_eq!(args.cargo_args, vec!["--features", "my_feature"]);
+            }
+            _ => panic!("expected Build command"),
+        }
+    }
+
+    #[test]
+    fn parses_rpm_with_package_and_no_build() {
+        let cli = Cli::try_parse_from([
+            "cargo-tizen",
+            "rpm",
+            "-A",
+            "aarch64",
+            "-p",
+            "my-app",
+            "--no-build",
+        ])
+        .expect("valid rpm args");
+        match cli.command {
+            Command::Rpm(args) => {
+                assert_eq!(args.package, Some("my-app".to_string()));
+                assert!(args.no_build);
+            }
+            _ => panic!("expected Rpm command"),
+        }
+    }
+
+    #[test]
+    fn parses_gh_release_with_bump_and_dry_run() {
+        let cli = Cli::try_parse_from([
+            "cargo-tizen",
+            "gh-release",
+            "--bump",
+            "patch",
+            "--dry-run",
+            "--yes",
+        ])
+        .expect("valid gh-release args");
+        match cli.command {
+            Command::GhRelease(args) => {
+                assert!(matches!(args.bump, Some(super::BumpLevel::Patch)));
+                assert!(args.dry_run);
+                assert!(args.yes);
+            }
+            _ => panic!("expected GhRelease command"),
+        }
+    }
+
+    #[test]
+    fn parses_gh_release_multi_arch() {
+        let cli = Cli::try_parse_from(["cargo-tizen", "gh-release", "-A", "armv7l", "aarch64"])
+            .expect("valid gh-release multi arch");
+        match cli.command {
+            Command::GhRelease(args) => {
+                assert_eq!(args.arch.len(), 2);
+            }
+            _ => panic!("expected GhRelease command"),
+        }
+    }
+
+    #[test]
+    fn parses_clean_all_flag() {
+        let cli = Cli::try_parse_from(["cargo-tizen", "clean", "--all"]).expect("valid clean args");
+        match cli.command {
+            Command::Clean(args) => {
+                assert!(args.all);
+                assert!(!args.sysroot);
+                assert!(!args.build);
+            }
+            _ => panic!("expected Clean command"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_subcommand() {
+        let result = Cli::try_parse_from(["cargo-tizen", "unknown"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn bump_level_parses_all_variants() {
+        let major = Cli::try_parse_from(["cargo-tizen", "gh-release", "--bump", "major"]).unwrap();
+        let minor = Cli::try_parse_from(["cargo-tizen", "gh-release", "--bump", "minor"]).unwrap();
+        let patch = Cli::try_parse_from(["cargo-tizen", "gh-release", "--bump", "patch"]).unwrap();
+        // Verify they parsed (no panic)
+        match major.command {
+            Command::GhRelease(a) => assert!(matches!(a.bump, Some(super::BumpLevel::Major))),
+            _ => panic!("expected GhRelease"),
+        }
+        match minor.command {
+            Command::GhRelease(a) => assert!(matches!(a.bump, Some(super::BumpLevel::Minor))),
+            _ => panic!("expected GhRelease"),
+        }
+        match patch.command {
+            Command::GhRelease(a) => assert!(matches!(a.bump, Some(super::BumpLevel::Patch))),
+            _ => panic!("expected GhRelease"),
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_bump_level() {
+        let result = Cli::try_parse_from(["cargo-tizen", "gh-release", "--bump", "invalid"]);
+        assert!(result.is_err());
     }
 }

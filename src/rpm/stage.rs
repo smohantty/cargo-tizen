@@ -154,3 +154,140 @@ pub fn stage_binaries_from_target_dir(
         package_names,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+    use crate::package_select::{PackageSource, SelectedPackage};
+
+    fn make_package(name: &str) -> SelectedPackage {
+        SelectedPackage {
+            name: name.to_string(),
+            source: PackageSource::Config,
+        }
+    }
+
+    #[test]
+    fn stage_single_binary() {
+        let dir = std::env::temp_dir().join(format!("ct-stage-single-{}", std::process::id()));
+        let workspace = dir.join("workspace");
+        let target_dir = dir.join("target");
+        let binary_dir = target_dir.join("aarch64-unknown-linux-gnu/release");
+        fs::create_dir_all(&binary_dir).unwrap();
+        fs::write(binary_dir.join("my-app"), b"fake binary").unwrap();
+
+        let packages = vec![make_package("my-app")];
+        let result = stage_binaries_from_target_dir(
+            &workspace,
+            Arch::Aarch64,
+            "aarch64-unknown-linux-gnu",
+            &target_dir,
+            true,
+            &packages,
+        )
+        .unwrap();
+
+        assert_eq!(result.package_names, vec!["my-app"]);
+        assert_eq!(result.staged_binaries.len(), 1);
+        assert!(result.staged_binaries[0].exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_rejects_duplicate_binary_names() {
+        let dir = std::env::temp_dir().join(format!("ct-stage-dup-{}", std::process::id()));
+        let workspace = dir.join("workspace");
+        let target_dir = dir.join("target");
+        fs::create_dir_all(&target_dir).unwrap();
+
+        let packages = vec![make_package("app"), make_package("app")];
+        let err = stage_binaries_from_target_dir(
+            &workspace,
+            Arch::Aarch64,
+            "aarch64-unknown-linux-gnu",
+            &target_dir,
+            true,
+            &packages,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("duplicate binary name"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_fails_when_binary_not_found() {
+        let dir = std::env::temp_dir().join(format!("ct-stage-miss-{}", std::process::id()));
+        let workspace = dir.join("workspace");
+        let target_dir = dir.join("target");
+        let binary_dir = target_dir.join("aarch64-unknown-linux-gnu/release");
+        fs::create_dir_all(&binary_dir).unwrap();
+        // no binary file created
+
+        let packages = vec![make_package("missing-app")];
+        let err = stage_binaries_from_target_dir(
+            &workspace,
+            Arch::Aarch64,
+            "aarch64-unknown-linux-gnu",
+            &target_dir,
+            true,
+            &packages,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("not found"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_uses_debug_profile_dir() {
+        let dir = std::env::temp_dir().join(format!("ct-stage-debug-{}", std::process::id()));
+        let workspace = dir.join("workspace");
+        let target_dir = dir.join("target");
+        let binary_dir = target_dir.join("aarch64-unknown-linux-gnu/debug");
+        fs::create_dir_all(&binary_dir).unwrap();
+        fs::write(binary_dir.join("dbg-app"), b"debug binary").unwrap();
+
+        let packages = vec![make_package("dbg-app")];
+        let result = stage_binaries_from_target_dir(
+            &workspace,
+            Arch::Aarch64,
+            "aarch64-unknown-linux-gnu",
+            &target_dir,
+            false, // debug
+            &packages,
+        )
+        .unwrap();
+
+        assert_eq!(result.package_names, vec!["dbg-app"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stage_multiple_binaries() {
+        let dir = std::env::temp_dir().join(format!("ct-stage-multi-{}", std::process::id()));
+        let workspace = dir.join("workspace");
+        let target_dir = dir.join("target");
+        let binary_dir = target_dir.join("aarch64-unknown-linux-gnu/release");
+        fs::create_dir_all(&binary_dir).unwrap();
+        fs::write(binary_dir.join("app-a"), b"binary a").unwrap();
+        fs::write(binary_dir.join("app-b"), b"binary b").unwrap();
+
+        let packages = vec![make_package("app-a"), make_package("app-b")];
+        let result = stage_binaries_from_target_dir(
+            &workspace,
+            Arch::Aarch64,
+            "aarch64-unknown-linux-gnu",
+            &target_dir,
+            true,
+            &packages,
+        )
+        .unwrap();
+
+        assert_eq!(result.package_names.len(), 2);
+        assert_eq!(result.staged_binaries.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

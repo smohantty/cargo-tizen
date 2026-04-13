@@ -122,4 +122,23 @@ mod tests {
             .as_nanos();
         Path::new("/tmp").join(format!("cargo-tizen-rust-target-test-{}", ts))
     }
+
+    #[test]
+    fn returns_none_when_gnu_dir_missing() {
+        let temp = temp_dir();
+        std::fs::create_dir_all(temp.join("usr").join("include")).expect("create include dir");
+        // no gnu/ subdirectory at all
+        assert_eq!(infer_armv7_target_from_sysroot_root(&temp), None);
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn returns_none_when_gnu_dir_is_empty() {
+        let temp = temp_dir();
+        let gnu = temp.join("usr").join("include").join("gnu");
+        std::fs::create_dir_all(&gnu).expect("create gnu dir");
+        // gnu/ exists but has neither stubs file
+        assert_eq!(infer_armv7_target_from_sysroot_root(&temp), None);
+        let _ = std::fs::remove_dir_all(temp);
+    }
 }

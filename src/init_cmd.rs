@@ -812,4 +812,53 @@ mod tests {
 
         assert!(err.contains("missing [package].name"));
     }
+
+    #[test]
+    fn sanitize_identifier_segment_handles_hyphens() {
+        assert_eq!(super::sanitize_identifier_segment("my-app"), "my_app");
+    }
+
+    #[test]
+    fn sanitize_identifier_segment_handles_leading_digit() {
+        assert_eq!(super::sanitize_identifier_segment("1app"), "app_1app");
+    }
+
+    #[test]
+    fn sanitize_identifier_segment_collapses_underscores() {
+        assert_eq!(super::sanitize_identifier_segment("a--b"), "a_b");
+    }
+
+    #[test]
+    fn sanitize_identifier_segment_empty_returns_app() {
+        assert_eq!(super::sanitize_identifier_segment(""), "app");
+        assert_eq!(super::sanitize_identifier_segment("---"), "app");
+    }
+
+    #[test]
+    fn title_case_label_converts_hyphenated() {
+        assert_eq!(super::title_case_label("my-cool-app"), "My Cool App");
+    }
+
+    #[test]
+    fn title_case_label_empty_returns_default() {
+        assert_eq!(super::title_case_label(""), "Tizen App");
+    }
+
+    #[test]
+    fn title_case_label_single_word() {
+        assert_eq!(super::title_case_label("daemon"), "Daemon");
+    }
+
+    #[test]
+    fn single_line_joins_multiline_text() {
+        assert_eq!(
+            super::single_line("line one\n  line two\n\nline three"),
+            "line one line two line three"
+        );
+    }
+
+    #[test]
+    fn single_line_handles_single_line() {
+        assert_eq!(super::single_line("just one"), "just one");
+    }
 }

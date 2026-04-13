@@ -43,3 +43,23 @@ pub fn provider_for(kind: ProviderKind) -> Box<dyn SysrootProvider> {
         ProviderKind::Repo => Box::new(crate::sysroot::repo::RepoProvider),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_kind_display() {
+        assert_eq!(ProviderKind::Rootstrap.to_string(), "rootstrap");
+        assert_eq!(ProviderKind::Repo.to_string(), "repo");
+    }
+
+    #[test]
+    fn provider_for_returns_correct_kind() {
+        let rootstrap = provider_for(ProviderKind::Rootstrap);
+        assert_eq!(rootstrap.kind(), ProviderKind::Rootstrap);
+
+        let repo = provider_for(ProviderKind::Repo);
+        assert_eq!(repo.kind(), ProviderKind::Repo);
+    }
+}

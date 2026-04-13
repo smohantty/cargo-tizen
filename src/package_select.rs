@@ -347,4 +347,22 @@ mod tests {
         assert_eq!(result[0].name, "standalone");
         assert_eq!(result[0].source, PackageSource::Manifest);
     }
+
+    #[test]
+    fn inspect_manifest_returns_unknown_for_empty_file() {
+        let dir = std::env::temp_dir().join(format!("ct-pkg-empty-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("Cargo.toml");
+        std::fs::write(&manifest, "# empty\n").unwrap();
+        let result = inspect_manifest(&manifest).unwrap();
+        assert!(matches!(result, ManifestKind::Unknown));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn package_source_requires_cargo_package_arg() {
+        assert!(PackageSource::Cli.requires_cargo_package_arg());
+        assert!(PackageSource::Config.requires_cargo_package_arg());
+        assert!(!PackageSource::Manifest.requires_cargo_package_arg());
+    }
 }

@@ -1,6 +1,6 @@
 use std::io::IsTerminal;
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
     Ok,
     Warn,
@@ -200,4 +200,95 @@ pub fn print_report(
     }
 
     error_count
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn section_severity_defaults_to_ok_when_empty() {
+        let section = Section::new("Empty");
+        assert_eq!(section.severity(), Severity::Ok);
+    }
+
+    #[test]
+    fn section_severity_is_max_of_items() {
+        let mut section = Section::new("Mixed");
+        section.ok("all good");
+        section.warn("something off");
+        assert_eq!(section.severity(), Severity::Warn);
+
+        section.error("bad");
+        assert_eq!(section.severity(), Severity::Error);
+    }
+
+    #[test]
+    fn warn_multiline_splits_first_line_as_message() {
+        let mut section = Section::new("Test");
+        section.warn_multiline("first line\nsecond line\nthird line");
+        assert_eq!(section.items.len(), 1);
+        assert_eq!(section.items[0].message, "first line");
+        assert_eq!(section.items[0].detail, vec!["second line", "third line"]);
+    }
+
+    #[test]
+    fn error_multiline_splits_first_line_as_message() {
+        let mut section = Section::new("Test");
+        section.error_multiline("error here\ndetail 1\ndetail 2");
+        assert_eq!(section.items[0].message, "error here");
+        assert_eq!(section.items[0].detail, vec!["detail 1", "detail 2"]);
+        assert_eq!(section.items[0].severity, Severity::Error);
+    }
+
+    #[test]
+    fn colorize_disabled_returns_plain_text() {
+        assert_eq!(colorize(false, "1;32", "hello"), "hello");
+    }
+
+    #[test]
+    fn colorize_enabled_wraps_with_ansi() {
+        let result = colorize(true, "1;32", "hello");
+        assert!(result.starts_with("\x1b[1;32m"));
+        assert!(result.ends_with("\x1b[0m"));
+        assert!(result.contains("hello"));
+    }
+
+    #[test]
+    fn cargo_status_right_aligns_to_15_chars() {
+        let result = cargo_status(false, "Building");
+        assert_eq!(result.len(), 15);
+        assert!(result.ends_with("Building"));
+    }
+
+    #[test]
+    fn render_sections_hides_ok_items_in_non_verbose() {
+        let mut section = Section::new("Test");
+        section.ok("good item");
+        section.warn("warning item");
+        let rendered = render_sections(&[section], false, false);
+        assert!(!rendered.contains("good item"));
+        assert!(rendered.contains("warning item"));
+    }
+
+    #[test]
+    fn render_sections_shows_ok_items_in_verbose() {
+        let mut section = Section::new("Test");
+        section.ok("good item");
+        section.warn("warning item");
+        let rendered = render_sections(&[section], false, true);
+        assert!(rendered.contains("good item"));
+        assert!(rendered.contains("warning item"));
+    }
+
+    #[test]
+    fn render_sections_separates_multiple_sections() {
+        let s1 = Section::new("First");
+        let s2 = Section::new("Second");
+        let rendered = render_sections(&[s1, s2], false, false);
+        assert!(rendered.contains("First"));
+        assert!(rendered.contains("Second"));
+        // Second section should be preceded by a blank line
+        assert!(rendered.contains("\n\n"));
+    }
 }

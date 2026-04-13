@@ -1899,6 +1899,25 @@ mod tests {
         assert!(!notes.contains("initial"));
     }
 
+    #[test]
+    fn parse_rpm_stage_key_extracts_name_and_arch() {
+        let key = parse_rpm_stage_key(std::path::Path::new("my-app-1.0.0-1.aarch64.rpm"));
+        assert!(key.is_some());
+        let key = key.unwrap();
+        assert_eq!(key.name, "my-app");
+        assert_eq!(key.arch, "aarch64");
+    }
+
+    #[test]
+    fn parse_rpm_stage_key_returns_none_for_non_rpm() {
+        assert!(parse_rpm_stage_key(std::path::Path::new("readme.txt")).is_none());
+    }
+
+    #[test]
+    fn parse_rpm_stage_key_returns_none_for_insufficient_parts() {
+        assert!(parse_rpm_stage_key(std::path::Path::new("short.rpm")).is_none());
+    }
+
     fn git(dir: &Path, args: impl IntoIterator<Item = &'static str>) {
         let status = Command::new("git")
             .args(args)

@@ -108,6 +108,7 @@ pub fn write_meta(entry_path: &Path, meta: &CacheMeta) -> Result<()> {
         .with_context(|| format!("failed to write cache metadata: {}", meta_path.display()))
 }
 
+#[derive(Debug)]
 pub struct CacheLock {
     lock_path: PathBuf,
 }
@@ -193,7 +194,13 @@ fn sibling_with_suffix(entry_path: &Path, suffix: &str) -> PathBuf {
 mod tests {
     use std::path::Path;
 
+    use super::{
+        CacheKey, STATE_READY, acquire_lock, entry_path, is_ready, sanitize_component, sysroot_dir,
+        write_state,
+    };
     use super::{sibling_with_suffix, temp_entry_path};
+    use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn suffix_generation_preserves_dotted_name() {
@@ -213,5 +220,84 @@ mod tests {
             temp.to_string_lossy()
                 .starts_with("/tmp/rootstrap-mobile-9.0-armv7l-v1.tmp-")
         );
+    }
+
+    #[test]
+    fn sanitize_component_passes_safe_chars() {
+        assert_eq!(sanitize_component("mobile-9.0_v1"), "mobile-9.0_v1");
+    }
+
+    #[test]
+    fn sanitize_component_replaces_special_chars() {
+        assert_eq!(sanitize_component("a/b:c d"), "a_b_c_d");
+    }
+
+    #[test]
+    fn entry_path_builds_correct_hierarchy() {
+        let key = CacheKey {
+            profile: "mobile".into(),
+            platform_version: "10.0".into(),
+            arch: "aarch64".into(),
+            provider: "rootstrap".into(),
+            fingerprint: "fp-v1".into(),
+        };
+        let path = entry_path(Path::new("/cache"), &key);
+        assert_eq!(
+            path,
+            PathBuf::from("/cache/mobile/10.0/aarch64/rootstrap/fp-v1")
+        );
+    }
+
+    #[test]
+    fn sysroot_dir_appends_sysroot() {
+        assert_eq!(
+            sysroot_dir(Path::new("/cache/entry")),
+            PathBuf::from("/cache/entry/sysroot")
+        );
+    }
+
+    #[test]
+    fn is_ready_returns_false_for_nonexistent() {
+        assert!(!is_ready(Path::new("/nonexistent/path/xyz")).unwrap());
+    }
+
+    #[test]
+    fn write_state_and_is_ready_round_trip() {
+        let dir = std::env::temp_dir().join(format!("ct-cache-test-{}", std::process::id()));
+        let entry = dir.join("test-entry");
+        let sysroot = entry.join("sysroot");
+        fs::create_dir_all(&sysroot).unwrap();
+        write_state(&entry, STATE_READY).unwrap();
+        assert!(is_ready(&entry).unwrap());
+        // wrong state
+        write_state(&entry, "building").unwrap();
+        assert!(!is_ready(&entry).unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn acquire_lock_and_drop_cleans_up() {
+        let dir = std::env::temp_dir().join(format!("ct-lock-test-{}", std::process::id()));
+        let entry = dir.join("test-entry");
+        fs::create_dir_all(&dir).unwrap();
+        let lock_path = Path::new(&dir).join("test-entry.lock");
+        {
+            let _lock = acquire_lock(&entry).unwrap();
+            assert!(lock_path.exists());
+        }
+        // After drop, lock file should be removed
+        assert!(!lock_path.exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn acquire_lock_fails_when_already_held() {
+        let dir = std::env::temp_dir().join(format!("ct-lock-dup-{}", std::process::id()));
+        let entry = dir.join("test-entry");
+        fs::create_dir_all(&dir).unwrap();
+        let _lock = acquire_lock(&entry).unwrap();
+        let err = acquire_lock(&entry).unwrap_err();
+        assert!(err.to_string().contains("already in progress"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

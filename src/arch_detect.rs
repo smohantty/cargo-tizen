@@ -209,4 +209,81 @@ mod tests {
             is_tizen: true,
         }
     }
+
+    #[test]
+    fn parse_arch_value_none_returns_none() {
+        assert_eq!(
+            parse_arch_value(None, "test").expect("None should return Ok(None)"),
+            None
+        );
+    }
+
+    #[test]
+    fn empty_device_list_returns_none() {
+        let devices: Vec<TizenDevice> = vec![];
+        assert_eq!(
+            detect_arch_from_devices(&devices),
+            DeviceArchSelection::None
+        );
+    }
+
+    #[test]
+    fn non_ready_devices_are_ignored() {
+        let devices = vec![TizenDevice {
+            id: "test".to_string(),
+            state: "offline".to_string(),
+            model: "model".to_string(),
+            profile: Some("mobile".to_string()),
+            cpu_arch: Some("arm".to_string()),
+            secure_protocol: false,
+            is_tizen: true,
+        }];
+        assert_eq!(
+            detect_arch_from_devices(&devices),
+            DeviceArchSelection::None
+        );
+    }
+
+    #[test]
+    fn non_tizen_devices_are_ignored() {
+        let devices = vec![TizenDevice {
+            id: "test".to_string(),
+            state: "device".to_string(),
+            model: "model".to_string(),
+            profile: None,
+            cpu_arch: Some("arm".to_string()),
+            secure_protocol: false,
+            is_tizen: false,
+        }];
+        assert_eq!(
+            detect_arch_from_devices(&devices),
+            DeviceArchSelection::None
+        );
+    }
+
+    #[test]
+    fn device_with_no_cpu_arch_is_skipped() {
+        let devices = vec![TizenDevice {
+            id: "test".to_string(),
+            state: "device".to_string(),
+            model: "model".to_string(),
+            profile: Some("mobile".to_string()),
+            cpu_arch: None,
+            secure_protocol: false,
+            is_tizen: true,
+        }];
+        assert_eq!(
+            detect_arch_from_devices(&devices),
+            DeviceArchSelection::None
+        );
+    }
+
+    #[test]
+    fn duplicate_arch_devices_collapse_to_single() {
+        let devices = vec![device_with_arch("arm"), device_with_arch("arm")];
+        assert_eq!(
+            detect_arch_from_devices(&devices),
+            DeviceArchSelection::Single(Arch::Armv7l)
+        );
+    }
 }

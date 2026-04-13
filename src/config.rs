@@ -482,4 +482,230 @@ mod tests {
         base.merge(other);
         assert_eq!(base.name(), Some("keep"));
     }
+
+    #[test]
+    fn profile_defaults_to_mobile() {
+        let config = Config::default();
+        assert_eq!(config.profile(), "mobile");
+    }
+
+    #[test]
+    fn profile_uses_custom_value() {
+        let config: Config = basic_toml::from_str("[default]\nprofile = \"tv\"\n").unwrap();
+        assert_eq!(config.profile(), "tv");
+    }
+
+    #[test]
+    fn platform_version_defaults_to_ten() {
+        let config = Config::default();
+        assert_eq!(config.platform_version(), "10.0");
+    }
+
+    #[test]
+    fn platform_version_uses_custom_value() {
+        let config: Config =
+            basic_toml::from_str("[default]\nplatform_version = \"9.0\"\n").unwrap();
+        assert_eq!(config.platform_version(), "9.0");
+    }
+
+    #[test]
+    fn default_provider_is_rootstrap() {
+        let config = Config::default();
+        assert_eq!(config.default_provider(), ProviderKind::Rootstrap);
+    }
+
+    #[test]
+    fn provider_repo_maps_to_repo() {
+        let config: Config = basic_toml::from_str("[default]\nprovider = \"repo\"\n").unwrap();
+        assert_eq!(config.default_provider(), ProviderKind::Repo);
+    }
+
+    #[test]
+    fn provider_unknown_falls_back_to_rootstrap() {
+        let config: Config = basic_toml::from_str("[default]\nprovider = \"custom\"\n").unwrap();
+        assert_eq!(config.default_provider(), ProviderKind::Rootstrap);
+    }
+
+    #[test]
+    fn linker_for_uses_default_when_unconfigured() {
+        let config = Config::default();
+        assert_eq!(
+            config.linker_for(crate::arch::Arch::Armv7l),
+            "arm-linux-gnueabi-gcc"
+        );
+        assert_eq!(
+            config.linker_for(crate::arch::Arch::Aarch64),
+            "aarch64-linux-gnu-gcc"
+        );
+    }
+
+    #[test]
+    fn linker_for_uses_config_override() {
+        let config: Config =
+            basic_toml::from_str("[arch.aarch64]\nlinker = \"custom-gcc\"\n").unwrap();
+        assert_eq!(config.linker_for(crate::arch::Arch::Aarch64), "custom-gcc");
+    }
+
+    #[test]
+    fn cc_for_returns_none_when_unconfigured() {
+        let config = Config::default();
+        assert!(config.cc_for(crate::arch::Arch::Armv7l).is_none());
+    }
+
+    #[test]
+    fn cc_for_returns_config_value() {
+        let config: Config = basic_toml::from_str("[arch.armv7l]\ncc = \"arm-cc\"\n").unwrap();
+        assert_eq!(
+            config.cc_for(crate::arch::Arch::Armv7l),
+            Some("arm-cc".to_string())
+        );
+    }
+
+    #[test]
+    fn rust_target_for_uses_default_when_unconfigured() {
+        let config = Config::default();
+        assert_eq!(
+            config.rust_target_for(crate::arch::Arch::Aarch64),
+            "aarch64-unknown-linux-gnu"
+        );
+    }
+
+    #[test]
+    fn rust_target_override_for_returns_none_when_unconfigured() {
+        let config = Config::default();
+        assert!(
+            config
+                .rust_target_override_for(crate::arch::Arch::Aarch64)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn rust_target_override_for_returns_config_value() {
+        let config: Config =
+            basic_toml::from_str("[arch.armv7l]\nrust_target = \"custom-target\"\n").unwrap();
+        assert_eq!(
+            config.rust_target_override_for(crate::arch::Arch::Armv7l),
+            Some("custom-target".to_string())
+        );
+    }
+
+    #[test]
+    fn tpk_sign_returns_none_when_unconfigured() {
+        let config = Config::default();
+        assert!(config.tpk_sign().is_none());
+    }
+
+    #[test]
+    fn tpk_sign_returns_value() {
+        let config: Config = basic_toml::from_str("[tpk]\nsign = \"my_profile\"\n").unwrap();
+        assert_eq!(config.tpk_sign(), Some("my_profile"));
+    }
+
+    #[test]
+    fn rpm_spec_name_returns_none_when_all_absent() {
+        let config = Config::default();
+        assert!(config.rpm_spec_name().is_none());
+    }
+
+    #[test]
+    fn default_config_merge_replaces_fields() {
+        let mut base = DefaultConfig {
+            arch: Some("arm".into()),
+            profile: Some("mobile".into()),
+            platform_version: Some("9.0".into()),
+            provider: None,
+            packaging_dir: None,
+        };
+        let other = DefaultConfig {
+            arch: None,
+            profile: Some("tv".into()),
+            platform_version: Some("10.0".into()),
+            provider: Some("repo".into()),
+            packaging_dir: None,
+        };
+        base.merge(other);
+        assert_eq!(base.arch, Some("arm".into())); // not replaced because other is None
+        assert_eq!(base.profile, Some("tv".into())); // replaced
+        assert_eq!(base.platform_version, Some("10.0".into())); // replaced
+        assert_eq!(base.provider, Some("repo".into())); // replaced
+    }
+
+    #[test]
+    fn arch_config_merge_replaces_set_fields() {
+        let mut base = ArchConfig {
+            linker: Some("old-gcc".into()),
+            cc: Some("old-cc".into()),
+            ..Default::default()
+        };
+        let other = ArchConfig {
+            linker: Some("new-gcc".into()),
+            ..Default::default()
+        };
+        base.merge(other);
+        assert_eq!(base.linker, Some("new-gcc".into()));
+        assert_eq!(base.cc, Some("old-cc".into())); // preserved
+    }
+
+    #[test]
+    fn full_config_merge_combines_arch_entries() {
+        let mut base = Config::default();
+        base.arch.insert(
+            "armv7l".into(),
+            ArchConfig {
+                linker: Some("old-gcc".into()),
+                ..Default::default()
+            },
+        );
+        let mut other = Config::default();
+        other.arch.insert(
+            "armv7l".into(),
+            ArchConfig {
+                cc: Some("new-cc".into()),
+                ..Default::default()
+            },
+        );
+        other.arch.insert(
+            "aarch64".into(),
+            ArchConfig {
+                linker: Some("aarch64-gcc".into()),
+                ..Default::default()
+            },
+        );
+        base.merge(other);
+        // armv7l: merged (linker preserved, cc added)
+        let armv7l = base.arch.get("armv7l").unwrap();
+        assert_eq!(armv7l.linker, Some("old-gcc".into()));
+        assert_eq!(armv7l.cc, Some("new-cc".into()));
+        // aarch64: inserted fresh
+        let aarch64 = base.arch.get("aarch64").unwrap();
+        assert_eq!(aarch64.linker, Some("aarch64-gcc".into()));
+    }
+
+    #[test]
+    fn release_config_gh_release_alias_works() {
+        let config: Config =
+            basic_toml::from_str("[gh_release]\ntag_format = \"release-{version}\"\n").unwrap();
+        assert_eq!(
+            config.release.tag_format,
+            Some("release-{version}".to_string())
+        );
+    }
+
+    #[test]
+    fn sdk_root_returns_none_when_unconfigured() {
+        let config = Config::default();
+        assert!(config.sdk_root().is_none());
+    }
+
+    #[test]
+    fn packaging_dir_returns_none_when_unconfigured() {
+        let config = Config::default();
+        assert!(config.packaging_dir().is_none());
+    }
+
+    #[test]
+    fn expand_tilde_plain_path_unchanged() {
+        assert_eq!(expand_tilde("/some/path"), PathBuf::from("/some/path"));
+    }
 }

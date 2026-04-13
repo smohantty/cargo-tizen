@@ -232,4 +232,74 @@ mod tests {
         assert!(rendered.contains("sysroot:"));
         assert!(rendered.contains("/sysroot"));
     }
+
+    use super::{default_target_dir, package_name_from_manifest, resolve_target_dir};
+    use std::fs;
+
+    #[test]
+    fn default_target_dir_builds_correct_path() {
+        let root = Path::new("/workspace");
+        assert_eq!(
+            default_target_dir(root, Arch::Armv7l),
+            Path::new("/workspace/target/tizen/armv7l/cargo")
+        );
+        assert_eq!(
+            default_target_dir(root, Arch::Aarch64),
+            Path::new("/workspace/target/tizen/aarch64/cargo")
+        );
+    }
+
+    #[test]
+    fn resolve_target_dir_uses_explicit_when_provided() {
+        let root = Path::new("/workspace");
+        let explicit = Path::new("/custom/target");
+        assert_eq!(
+            resolve_target_dir(root, Arch::Armv7l, Some(explicit)),
+            Path::new("/custom/target")
+        );
+    }
+
+    #[test]
+    fn resolve_target_dir_falls_back_to_default() {
+        let root = Path::new("/workspace");
+        assert_eq!(
+            resolve_target_dir(root, Arch::Aarch64, None),
+            default_target_dir(root, Arch::Aarch64)
+        );
+    }
+
+    #[test]
+    fn package_name_from_manifest_reads_name() {
+        let dir = std::env::temp_dir().join(format!("ct-manifest-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("Cargo.toml");
+        fs::write(
+            &manifest,
+            "[package]\nname = \"my-app\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            package_name_from_manifest(&manifest),
+            Some("my-app".to_string())
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn package_name_from_manifest_returns_none_for_workspace() {
+        let dir = std::env::temp_dir().join(format!("ct-manifest-ws-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let manifest = dir.join("Cargo.toml");
+        fs::write(&manifest, "[workspace]\nmembers = [\"a\"]\n").unwrap();
+        assert_eq!(package_name_from_manifest(&manifest), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn package_name_from_manifest_returns_none_for_missing() {
+        assert_eq!(
+            package_name_from_manifest(Path::new("/nonexistent/Cargo.toml")),
+            None
+        );
+    }
 }

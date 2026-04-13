@@ -543,8 +543,9 @@ mod tests {
     use crate::sysroot::provider::SetupRequest;
 
     use super::{
-        InstalledRootstrapOption, candidate_ids, canonical_profile, profile_matches,
-        select_best_option,
+        InstalledRootstrapOption, candidate_ids, canonical_profile, canonical_profile_name,
+        fallback_profile, parse_version, profile_matches, profile_rank, rootstrap_id,
+        select_best_option, version_ge,
     };
 
     #[test]
@@ -607,5 +608,110 @@ mod tests {
             rootstrap_id: "iot-headed-6.0-device.core".to_string(),
         };
         assert!(profile_matches("tv", &option));
+    }
+
+    #[test]
+    fn canonical_profile_tv_maps_to_tv_samsung() {
+        assert_eq!(canonical_profile_name("tv", "10.0"), "tv-samsung");
+    }
+
+    #[test]
+    fn canonical_profile_mobile_maps_to_tizen_post_8() {
+        assert_eq!(canonical_profile_name("mobile", "8.0"), "tizen");
+        assert_eq!(canonical_profile_name("mobile", "10.0"), "tizen");
+    }
+
+    #[test]
+    fn canonical_profile_passes_through_unknown() {
+        assert_eq!(canonical_profile_name("wearable", "10.0"), "wearable");
+    }
+
+    #[test]
+    fn canonical_profile_trims_and_lowercases() {
+        assert_eq!(canonical_profile_name("  TV  ", "10.0"), "tv-samsung");
+        assert_eq!(canonical_profile_name("Mobile", "9.0"), "tizen");
+    }
+
+    #[test]
+    fn fallback_profile_returns_none_for_non_tv() {
+        let req = SetupRequest {
+            arch: Arch::Aarch64,
+            profile: "mobile".to_string(),
+            platform_version: "10.0".to_string(),
+            sdk_root_override: None,
+        };
+        assert_eq!(fallback_profile(&req), None);
+
+        let req = SetupRequest {
+            arch: Arch::Aarch64,
+            profile: "tizen".to_string(),
+            platform_version: "10.0".to_string(),
+            sdk_root_override: None,
+        };
+        assert_eq!(fallback_profile(&req), None);
+    }
+
+    #[test]
+    fn fallback_profile_tv_samsung_returns_tizen_post_8() {
+        let req = SetupRequest {
+            arch: Arch::Aarch64,
+            profile: "tv".to_string(),
+            platform_version: "10.0".to_string(),
+            sdk_root_override: None,
+        };
+        assert_eq!(fallback_profile(&req), Some("tizen".to_string()));
+    }
+
+    #[test]
+    fn fallback_profile_tv_samsung_returns_iot_headed_pre_8() {
+        let req = SetupRequest {
+            arch: Arch::Aarch64,
+            profile: "tv".to_string(),
+            platform_version: "6.0".to_string(),
+            sdk_root_override: None,
+        };
+        assert_eq!(fallback_profile(&req), Some("iot-headed".to_string()));
+    }
+
+    #[test]
+    fn rootstrap_id_format() {
+        assert_eq!(
+            rootstrap_id("mobile", "10.0", "device"),
+            "mobile-10.0-device.core"
+        );
+    }
+
+    #[test]
+    fn parse_version_handles_major_minor() {
+        assert_eq!(parse_version("10.0"), (10, 0));
+        assert_eq!(parse_version("8.5"), (8, 5));
+    }
+
+    #[test]
+    fn parse_version_handles_single_component() {
+        assert_eq!(parse_version("7"), (7, 0));
+    }
+
+    #[test]
+    fn parse_version_handles_empty() {
+        assert_eq!(parse_version(""), (0, 0));
+    }
+
+    #[test]
+    fn version_ge_compares_correctly() {
+        assert!(version_ge("10.0", 8, 0));
+        assert!(version_ge("8.0", 8, 0));
+        assert!(!version_ge("7.9", 8, 0));
+    }
+
+    #[test]
+    fn profile_rank_known_profiles() {
+        assert!(profile_rank("tizen") < profile_rank("iot-headed"));
+        assert!(profile_rank("tv-samsung") < profile_rank("iot-headed"));
+    }
+
+    #[test]
+    fn profile_rank_unknown_returns_high_value() {
+        assert_eq!(profile_rank("custom"), 10);
     }
 }

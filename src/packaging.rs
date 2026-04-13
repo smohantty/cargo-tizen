@@ -408,4 +408,39 @@ mod tests {
         assert!(err.contains("TPK manifest not found"));
         assert!(err.contains("cargo tizen init --tpk"));
     }
+
+    #[test]
+    fn packaging_layout_default_root() {
+        let layout = PackagingLayout::new(std::path::Path::new("/workspace"), None);
+        assert_eq!(layout.root(), std::path::Path::new("/workspace/tizen"));
+    }
+
+    #[test]
+    fn packaging_layout_custom_root() {
+        let layout = PackagingLayout::new(
+            std::path::Path::new("/workspace"),
+            Some(std::path::Path::new("/custom/pkg")),
+        );
+        assert_eq!(layout.root(), std::path::Path::new("/custom/pkg"));
+    }
+
+    #[test]
+    fn rpm_spec_path_uses_package_name() {
+        let layout = PackagingLayout::new(std::path::Path::new("/workspace"), None);
+        let spec = layout.rpm_spec_path("my-app");
+        assert_eq!(
+            spec,
+            std::path::PathBuf::from("/workspace/tizen/rpm/my-app.spec")
+        );
+    }
+
+    #[test]
+    fn tpk_manifest_path_is_standard() {
+        let layout = PackagingLayout::new(std::path::Path::new("/workspace"), None);
+        let manifest = layout.tpk_manifest_path();
+        assert_eq!(
+            manifest,
+            std::path::PathBuf::from("/workspace/tizen/tpk/tizen-manifest.xml")
+        );
+    }
 }

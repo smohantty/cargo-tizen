@@ -347,3 +347,37 @@ fn binary_exists(value: &str) -> bool {
     }
     which::which(value).is_ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::version_sort_key;
+
+    #[test]
+    fn version_sort_key_parses_major_minor() {
+        assert_eq!(version_sort_key("10.0"), (10, 0));
+        assert_eq!(version_sort_key("9.5"), (9, 5));
+    }
+
+    #[test]
+    fn version_sort_key_handles_single_component() {
+        assert_eq!(version_sort_key("7"), (7, 0));
+    }
+
+    #[test]
+    fn version_sort_key_handles_empty_string() {
+        assert_eq!(version_sort_key(""), (0, 0));
+    }
+
+    #[test]
+    fn version_sort_key_handles_non_numeric() {
+        assert_eq!(version_sort_key("abc"), (0, 0));
+        assert_eq!(version_sort_key("1.abc"), (1, 0));
+    }
+
+    #[test]
+    fn version_sort_orders_correctly() {
+        assert!(version_sort_key("10.0") > version_sort_key("9.5"));
+        assert!(version_sort_key("9.5") > version_sort_key("9.0"));
+        assert!(version_sort_key("10.1") > version_sort_key("10.0"));
+    }
+}

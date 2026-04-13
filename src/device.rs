@@ -330,4 +330,40 @@ ABCDEF                  unauthorized    TV
         assert_eq!(rows[1].state, "offline");
         assert_eq!(rows[2].state, "unauthorized");
     }
+
+    #[test]
+    fn parse_sdb_empty_input() {
+        let rows = parse_sdb_devices_output("");
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn parse_sdb_header_only() {
+        let rows = parse_sdb_devices_output("List of devices attached\n");
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn parse_sdb_skips_star_lines() {
+        let input = "List of devices attached\n* daemon started\n192.168.0.1:26101  device  TV\n";
+        let rows = parse_sdb_devices_output(input);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "192.168.0.1:26101");
+    }
+
+    #[test]
+    fn parse_sdb_two_part_line_defaults_model() {
+        let input = "DEVICE_ID   offline\n";
+        let rows = parse_sdb_devices_output(input);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, "unknown");
+    }
+
+    #[test]
+    fn parse_sdb_model_with_spaces() {
+        let input = "192.168.0.1:26101   device   Samsung Galaxy Watch 4\n";
+        let rows = parse_sdb_devices_output(input);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].model, "Samsung Galaxy Watch 4");
+    }
 }

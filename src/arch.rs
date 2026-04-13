@@ -122,4 +122,58 @@ mod tests {
         assert_eq!(Arch::parse("arm64"), Some(Arch::Aarch64));
         assert_eq!(Arch::parse("x86_64"), None);
     }
+
+    #[test]
+    fn aarch64_mapping_is_complete() {
+        let m = Arch::Aarch64.map();
+        assert_eq!(m.tizen_cli_arch, "aarch64");
+        assert_eq!(m.tizen_build_arch, "aarch64");
+        assert_eq!(m.rpm_build_arch, "aarch64");
+        assert_eq!(m.rootstrap_type, "device64");
+        assert_eq!(m.default_linker, "aarch64-linux-gnu-gcc");
+        assert_eq!(m.linker_apt_package, "gcc-aarch64-linux-gnu");
+    }
+
+    #[test]
+    fn armv7l_rootstrap_and_linker() {
+        let m = Arch::Armv7l.map();
+        assert_eq!(m.rootstrap_type, "device");
+        assert_eq!(m.default_linker, "arm-linux-gnueabi-gcc");
+        assert_eq!(m.linker_apt_package, "gcc-arm-linux-gnueabi");
+    }
+
+    #[test]
+    fn as_str_returns_canonical_names() {
+        assert_eq!(Arch::Armv7l.as_str(), "armv7l");
+        assert_eq!(Arch::Aarch64.as_str(), "aarch64");
+    }
+
+    #[test]
+    fn display_matches_as_str() {
+        assert_eq!(format!("{}", Arch::Armv7l), "armv7l");
+        assert_eq!(format!("{}", Arch::Aarch64), "aarch64");
+    }
+
+    #[test]
+    fn all_contains_both_variants() {
+        let all = Arch::all();
+        assert_eq!(all.len(), 2);
+        assert!(all.contains(&Arch::Armv7l));
+        assert!(all.contains(&Arch::Aarch64));
+    }
+
+    #[test]
+    fn parse_normalizes_whitespace_and_case() {
+        assert_eq!(Arch::parse("  ARM  "), Some(Arch::Armv7l));
+        assert_eq!(Arch::parse("AARCH64"), Some(Arch::Aarch64));
+        assert_eq!(Arch::parse("Arm64"), Some(Arch::Aarch64));
+        assert_eq!(Arch::parse("armv7"), Some(Arch::Armv7l));
+    }
+
+    #[test]
+    fn parse_rejects_empty_and_unknown() {
+        assert_eq!(Arch::parse(""), None);
+        assert_eq!(Arch::parse("  "), None);
+        assert_eq!(Arch::parse("riscv64"), None);
+    }
 }

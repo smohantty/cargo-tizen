@@ -405,3 +405,78 @@ pub fn ensure_rust_target_installed(target: &str) -> Result<bool> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(stdout.lines().any(|line| line.trim() == target))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infer_cxx_from_gcc_linker() {
+        assert_eq!(
+            infer_cxx_from_linker("arm-linux-gnueabi-gcc"),
+            Some("arm-linux-gnueabi-g++".to_string())
+        );
+    }
+
+    #[test]
+    fn infer_cxx_from_clang_linker() {
+        assert_eq!(infer_cxx_from_linker("clang"), Some("clang++".to_string()));
+    }
+
+    #[test]
+    fn infer_cxx_returns_none_for_unknown_linker() {
+        assert_eq!(infer_cxx_from_linker("ld"), None);
+        assert_eq!(infer_cxx_from_linker("custom-linker"), None);
+    }
+
+    #[test]
+    fn infer_ar_from_gcc_linker() {
+        assert_eq!(
+            infer_ar_from_linker("arm-linux-gnueabi-gcc"),
+            Some("arm-linux-gnueabi-ar".to_string())
+        );
+    }
+
+    #[test]
+    fn infer_ar_from_clang_linker() {
+        assert_eq!(infer_ar_from_linker("clang"), Some("ar".to_string()));
+    }
+
+    #[test]
+    fn infer_ar_returns_none_for_unknown_linker() {
+        assert_eq!(infer_ar_from_linker("ld"), None);
+    }
+
+    #[test]
+    fn has_path_separator_detects_slashes() {
+        assert!(has_path_separator("/usr/bin/gcc"));
+        assert!(has_path_separator("C:\\tools\\gcc"));
+        assert!(!has_path_separator("gcc"));
+        assert!(!has_path_separator("arm-linux-gnueabi-gcc"));
+    }
+
+    #[test]
+    fn tool_env_set_and_apply() {
+        let mut env = ToolEnv::default();
+        env.set("TEST_KEY", "test_value");
+        let mut cmd = Command::new("echo");
+        env.apply(&mut cmd);
+        // Command was modified (no panic means it worked)
+        let envs: Vec<_> = cmd.get_envs().collect();
+        assert!(
+            envs.iter()
+                .any(|(k, v)| *k == "TEST_KEY"
+                    && v.map(|v| v.to_str().unwrap()) == Some("test_value"))
+        );
+    }
+
+    #[test]
+    fn executable_name_appends_exe_on_windows_only() {
+        let name = executable_name("sdb");
+        if cfg!(windows) {
+            assert_eq!(name, "sdb.exe");
+        } else {
+            assert_eq!(name, "sdb");
+        }
+    }
+}

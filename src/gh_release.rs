@@ -1816,7 +1816,7 @@ mod tests {
     #[test]
     fn generate_release_notes_uses_previous_release_tag_range() {
         let dir = tempfile::tempdir().unwrap();
-        git(dir.path(), ["init"]);
+        git(dir.path(), ["init", "-b", "main"]);
         git(dir.path(), ["config", "user.email", "dev@example.com"]);
         git(dir.path(), ["config", "user.name", "Dev"]);
 
@@ -1851,7 +1851,7 @@ mod tests {
     #[test]
     fn generate_release_notes_respects_custom_tag_namespace() {
         let dir = tempfile::tempdir().unwrap();
-        git(dir.path(), ["init"]);
+        git(dir.path(), ["init", "-b", "main"]);
         git(dir.path(), ["config", "user.email", "dev@example.com"]);
         git(dir.path(), ["config", "user.name", "Dev"]);
 

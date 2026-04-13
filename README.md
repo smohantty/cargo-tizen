@@ -21,6 +21,7 @@ cargo tizen gh-release --dry-run
 - `install` is TPK-only.
 - `gh-release` is RPM-only.
 - `gh-release` only replaces previously staged RPMs in `rpm/sources/` when they match the same output package and arch.
+- `gh-release` accepts any selected package set that resolves to one shared release version, whether that comes from crate-local `version = "..."` fields, `[workspace.package].version`, or a mix of both.
 - Packaging currently expects the built binary name to match the selected package name.
 
 ## Install

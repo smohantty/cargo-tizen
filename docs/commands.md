@@ -216,10 +216,11 @@ Current behavior:
 - reads project config only
 - requires `[package].name` and `[package].packages`
 - defaults release architectures from `[release].arches` or both supported arches
+- reads the release version from the selected crate manifests, using `[workspace.package].version` when a selected crate uses `version.workspace = true`
 - validates a clean working tree, branch `main`, remote `origin`, and authenticated `gh`
 - builds release binaries, packages RPMs with `--no-build`, stages them into `<packaging-dir>/rpm/sources/`, replaces previously staged RPMs for the same output package+arch only, syncs the spec `Version:` field, commits artifacts, tags, pushes, and creates or updates the GitHub release
 - uploads RPM and `.sha256` sidecar assets
 
 Current limitation:
 
-- all configured release packages must resolve to one shared version source
+- all configured release packages must resolve to the same release version; `--bump` updates every contributing manifest path

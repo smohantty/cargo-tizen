@@ -132,6 +132,7 @@ cargo tizen gh-release --dry-run
 - remote `origin`
 - authenticated `gh`
 - project config with `[package].name` and `[package].packages`
+- one shared release version across the selected crates, whether it comes from crate-local `version = "..."` fields, `[workspace.package].version`, or both
 
 When it stages release RPMs into `rpm/sources/`, it only replaces older RPMs for the same output package+arch. Other authored files there stay intact.
 

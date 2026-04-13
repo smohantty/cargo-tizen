@@ -142,6 +142,7 @@ Generated RPM and TPK work trees stay under arch- and profile-segmented director
 - remote `origin`
 - authenticated `gh`
 - project config with `[package].name` and `[package].packages`
+- one shared release version across the selected crates; the version may live in per-crate manifests, `[workspace.package].version`, or both, and `--bump` updates each contributing manifest path
 
 The flow:
 

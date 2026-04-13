@@ -36,8 +36,13 @@ struct ReleasePlan {
     workspace_root: PathBuf,
     packaging_root: PathBuf,
     version_bumped: bool,
-    cargo_toml_path: Option<PathBuf>,
+    cargo_toml_paths: Vec<PathBuf>,
     notes: String,
+}
+
+struct ReleaseVersion {
+    paths: Vec<PathBuf>,
+    version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -60,14 +65,17 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
     let spec_path = packaging.resolve_rpm_spec(&resolved.spec_name)?;
 
     let mut version_bumped = false;
-    let mut cargo_toml_path: Option<PathBuf> = None;
+    let mut cargo_toml_paths = Vec::new();
     let version = if let Some(level) = args.bump {
-        let (toml_path, current_version) =
-            resolve_release_version_path(&release_ctx.workspace_root, &resolved.packages)?;
+        let release_version =
+            resolve_release_version(&release_ctx.workspace_root, &resolved.packages)?;
+        let current_version = release_version.version.clone();
         let new_version = bump_version(&current_version, level)?;
         if !args.dry_run {
-            update_cargo_toml_version(&toml_path, &current_version, &new_version)?;
-            cargo_toml_path = Some(toml_path);
+            for toml_path in &release_version.paths {
+                update_cargo_toml_version(toml_path, &current_version, &new_version)?;
+            }
+            cargo_toml_paths = release_version.paths;
             version_bumped = true;
 
             let use_color = color_enabled();
@@ -107,7 +115,7 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         workspace_root: release_ctx.workspace_root.clone(),
         packaging_root: packaging.root().to_path_buf(),
         version_bumped,
-        cargo_toml_path,
+        cargo_toml_paths,
         notes,
     };
 
@@ -183,12 +191,13 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
     }
 
     let mut paths_to_add = Vec::new();
-    if let Some(ref toml_path) = plan.cargo_toml_path {
+    for toml_path in &plan.cargo_toml_paths {
         let toml_rel = toml_path
             .strip_prefix(&plan.workspace_root)
             .unwrap_or(toml_path);
         paths_to_add.push(toml_rel.to_string_lossy().to_string());
-
+    }
+    if !plan.cargo_toml_paths.is_empty() {
         let lock_path = plan.workspace_root.join("Cargo.lock");
         if lock_path.is_file() {
             paths_to_add.push("Cargo.lock".to_string());
@@ -391,35 +400,54 @@ fn resolve_cargo_version_path(
     package_name: &str,
 ) -> Result<(PathBuf, String)> {
     let toml_path = workspace_root.join("Cargo.toml");
-    let raw = fs::read_to_string(&toml_path)
-        .with_context(|| format!("failed to read {}", toml_path.display()))?;
-    let parsed: toml_types::CargoToml = basic_toml::from_str(&raw)
-        .with_context(|| format!("failed to parse {}", toml_path.display()))?;
+    let parsed = read_cargo_toml(&toml_path)?;
 
-    if let Some(ref pkg) = parsed.package {
-        if let Some(ref version) = pkg.version {
-            return Ok((toml_path.clone(), version.clone()));
-        }
-    }
-
-    let member_toml = find_package_manifest_path(workspace_root, package_name)
-        .unwrap_or_else(|| workspace_root.join(package_name).join("Cargo.toml"));
+    let member_toml =
+        find_package_manifest_path(workspace_root, package_name).unwrap_or_else(|| {
+            if parsed.package.as_ref().and_then(|pkg| pkg.name.as_deref()) == Some(package_name) {
+                toml_path.clone()
+            } else {
+                workspace_root.join(package_name).join("Cargo.toml")
+            }
+        });
     if member_toml.is_file() {
-        let raw = fs::read_to_string(&member_toml)
-            .with_context(|| format!("failed to read {}", member_toml.display()))?;
-        let parsed: toml_types::CargoToml = basic_toml::from_str(&raw)
-            .with_context(|| format!("failed to parse {}", member_toml.display()))?;
-        if let Some(ref pkg) = parsed.package {
-            if let Some(ref version) = pkg.version {
-                return Ok((member_toml, version.clone()));
+        let member = read_cargo_toml(&member_toml)?;
+        if let Some(ref pkg) = member.package {
+            if let Some(version) = pkg
+                .version
+                .as_ref()
+                .and_then(toml_types::ManifestVersion::as_literal)
+            {
+                return Ok((member_toml.clone(), version.to_string()));
+            }
+            if pkg
+                .version
+                .as_ref()
+                .is_some_and(toml_types::ManifestVersion::uses_workspace)
+            {
+                if let Some(ref ws) = parsed.workspace {
+                    if let Some(ref pkg) = ws.package {
+                        if let Some(version) = pkg
+                            .version
+                            .as_ref()
+                            .and_then(toml_types::ManifestVersion::as_literal)
+                        {
+                            return Ok((toml_path.clone(), version.to_string()));
+                        }
+                    }
+                }
             }
         }
     }
 
     if let Some(ref ws) = parsed.workspace {
         if let Some(ref pkg) = ws.package {
-            if let Some(ref version) = pkg.version {
-                return Ok((toml_path.clone(), version.clone()));
+            if let Some(version) = pkg
+                .version
+                .as_ref()
+                .and_then(toml_types::ManifestVersion::as_literal)
+            {
+                return Ok((toml_path.clone(), version.to_string()));
             }
         }
     }
@@ -439,44 +467,57 @@ fn read_cargo_version(workspace_root: &Path, package_name: &str) -> Result<Strin
     resolve_cargo_version_path(workspace_root, package_name).map(|(_, version)| version)
 }
 
-fn resolve_release_version_path(
+fn read_cargo_toml(path: &Path) -> Result<toml_types::CargoToml> {
+    let raw =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    basic_toml::from_str(&raw).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn resolve_release_version(
     workspace_root: &Path,
     packages: &[SelectedPackage],
-) -> Result<(PathBuf, String)> {
+) -> Result<ReleaseVersion> {
     let mut resolved = Vec::new();
     for package in packages {
         let (path, version) = resolve_cargo_version_path(workspace_root, &package.name)?;
-        if resolved
+        resolved.push((package.name.clone(), path, version));
+    }
+
+    let Some((_, _, version)) = resolved.first() else {
+        bail!("gh-release requires at least one package");
+    };
+    let version = version.clone();
+
+    if resolved
+        .iter()
+        .any(|(_, _, package_version)| package_version != &version)
+    {
+        let details = resolved
             .iter()
-            .all(|(existing, _): &(PathBuf, String)| existing != &path)
-        {
-            resolved.push((path, version));
+            .map(|(name, path, package_version)| {
+                format!("{name}={package_version} ({})", path.display())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        bail!(
+            "gh-release requires all configured packages to share one release version\n\
+             resolved packages: {}",
+            details
+        );
+    }
+
+    let mut paths = Vec::new();
+    for (_, path, _) in resolved {
+        if paths.iter().all(|existing| existing != &path) {
+            paths.push(path);
         }
     }
 
-    if resolved.len() == 1 {
-        return Ok(resolved.remove(0));
-    }
-
-    let package_names: Vec<&str> = packages
-        .iter()
-        .map(|package| package.name.as_str())
-        .collect();
-    let manifest_paths: Vec<String> = resolved
-        .iter()
-        .map(|(path, _)| path.display().to_string())
-        .collect();
-    bail!(
-        "gh-release requires all configured packages to share one version source\n\
-         packages: {}\n\
-         resolved manifests: {}",
-        package_names.join(", "),
-        manifest_paths.join(", ")
-    );
+    Ok(ReleaseVersion { paths, version })
 }
 
 fn read_release_version(workspace_root: &Path, packages: &[SelectedPackage]) -> Result<String> {
-    resolve_release_version_path(workspace_root, packages).map(|(_, version)| version)
+    resolve_release_version(workspace_root, packages).map(|release| release.version)
 }
 
 fn find_package_manifest_path(workspace_root: &Path, package_name: &str) -> Option<PathBuf> {
@@ -1225,7 +1266,7 @@ mod toml_types {
     pub struct PackageSection {
         #[cfg_attr(not(test), allow(dead_code))]
         pub name: Option<String>,
-        pub version: Option<String>,
+        pub version: Option<ManifestVersion>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -1235,7 +1276,32 @@ mod toml_types {
 
     #[derive(Debug, Deserialize)]
     pub struct WorkspacePackage {
-        pub version: Option<String>,
+        pub version: Option<ManifestVersion>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(untagged)]
+    pub enum ManifestVersion {
+        Literal(String),
+        Inherited(InheritedValue),
+    }
+
+    impl ManifestVersion {
+        pub fn as_literal(&self) -> Option<&str> {
+            match self {
+                Self::Literal(version) => Some(version.as_str()),
+                Self::Inherited(_) => None,
+            }
+        }
+
+        pub fn uses_workspace(&self) -> bool {
+            matches!(self, Self::Inherited(InheritedValue { workspace: true }))
+        }
+    }
+
+    #[derive(Debug, Deserialize)]
+    pub struct InheritedValue {
+        pub workspace: bool,
     }
 
     #[derive(Debug, Deserialize)]
@@ -1275,6 +1341,24 @@ mod tests {
         fs::write(
             dir.path().join("Cargo.toml"),
             "[workspace]\nmembers = [\"a\"]\n\n[workspace.package]\nversion = \"0.5.0\"\n",
+        )
+        .unwrap();
+        let version = read_cargo_version(dir.path(), "a").unwrap();
+        assert_eq!(version, "0.5.0");
+    }
+
+    #[test]
+    fn read_cargo_version_from_workspace_inherited_member() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"a\"]\n\n[workspace.package]\nversion = \"0.5.0\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("a")).unwrap();
+        fs::write(
+            dir.path().join("a").join("Cargo.toml"),
+            "[package]\nname = \"a\"\nversion.workspace = true\n",
         )
         .unwrap();
         let version = read_cargo_version(dir.path(), "a").unwrap();
@@ -1410,7 +1494,7 @@ mod tests {
             workspace_root: workspace_root.to_path_buf(),
             packaging_root,
             version_bumped: false,
-            cargo_toml_path: None,
+            cargo_toml_paths: Vec::new(),
             notes: String::new(),
         };
 
@@ -1533,6 +1617,22 @@ mod tests {
     }
 
     #[test]
+    fn update_cargo_toml_version_in_workspace_package_for_inherited_root_package() {
+        let dir = tempfile::tempdir().unwrap();
+        let toml = dir.path().join("Cargo.toml");
+        fs::write(
+            &toml,
+            "[package]\nname = \"demo\"\nversion.workspace = true\n\n[workspace]\nmembers = [\".\"]\n\n[workspace.package]\nversion = \"0.5.0\"\n",
+        )
+        .unwrap();
+        update_cargo_toml_version(&toml, "0.5.0", "0.6.0").unwrap();
+        let content = fs::read_to_string(&toml).unwrap();
+        assert!(content.contains("version.workspace = true"));
+        assert!(content.contains("[workspace.package]\nversion = \"0.6.0\""));
+        assert!(!content.contains("version = \"0.5.0\""));
+    }
+
+    #[test]
     fn update_cargo_toml_version_preserves_formatting() {
         let dir = tempfile::tempdir().unwrap();
         let toml = dir.path().join("Cargo.toml");
@@ -1559,7 +1659,90 @@ mod tests {
     }
 
     #[test]
-    fn resolve_release_version_path_rejects_multiple_version_sources() {
+    fn resolve_cargo_version_path_returns_workspace_file_for_inherited_member() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"device/rsdbd\"]\n\n[workspace.package]\nversion = \"0.1.3\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("device").join("rsdbd")).unwrap();
+        fs::write(
+            dir.path().join("device").join("rsdbd").join("Cargo.toml"),
+            "[package]\nname = \"rsdbd\"\nversion.workspace = true\n",
+        )
+        .unwrap();
+
+        let (path, version) = resolve_cargo_version_path(dir.path(), "rsdbd").unwrap();
+        assert_eq!(path, dir.path().join("Cargo.toml"));
+        assert_eq!(version, "0.1.3");
+    }
+
+    #[test]
+    fn resolve_cargo_version_path_accepts_inline_workspace_inheritance() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"server\"]\n\n[workspace.package]\nversion = \"2.0.0\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("server")).unwrap();
+        fs::write(
+            dir.path().join("server").join("Cargo.toml"),
+            "[package]\nname = \"server\"\nversion = { workspace = true }\n",
+        )
+        .unwrap();
+
+        let (path, version) = resolve_cargo_version_path(dir.path(), "server").unwrap();
+        assert_eq!(path, dir.path().join("Cargo.toml"));
+        assert_eq!(version, "2.0.0");
+    }
+
+    #[test]
+    fn resolve_release_version_accepts_matching_versions_from_multiple_manifests() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"server\", \"cli\"]\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("server")).unwrap();
+        fs::create_dir_all(dir.path().join("cli")).unwrap();
+        fs::write(
+            dir.path().join("server").join("Cargo.toml"),
+            "[package]\nname = \"server\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("cli").join("Cargo.toml"),
+            "[package]\nname = \"cli\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+
+        let packages = vec![
+            SelectedPackage {
+                name: "server".to_string(),
+                source: package_select::PackageSource::Config,
+            },
+            SelectedPackage {
+                name: "cli".to_string(),
+                source: package_select::PackageSource::Config,
+            },
+        ];
+
+        let release = resolve_release_version(dir.path(), &packages).unwrap();
+        assert_eq!(release.version, "1.0.0");
+        assert_eq!(
+            release.paths,
+            vec![
+                dir.path().join("server").join("Cargo.toml"),
+                dir.path().join("cli").join("Cargo.toml"),
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_release_version_rejects_mismatched_versions() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(
             dir.path().join("Cargo.toml"),
@@ -1589,7 +1772,45 @@ mod tests {
                 source: package_select::PackageSource::Config,
             },
         ];
-        assert!(resolve_release_version_path(dir.path(), &packages).is_err());
+
+        assert!(resolve_release_version(dir.path(), &packages).is_err());
+    }
+
+    #[test]
+    fn resolve_release_version_accepts_shared_workspace_version_source() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"server\", \"cli\"]\n\n[workspace.package]\nversion = \"1.2.3\"\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join("server")).unwrap();
+        fs::create_dir_all(dir.path().join("cli")).unwrap();
+        fs::write(
+            dir.path().join("server").join("Cargo.toml"),
+            "[package]\nname = \"server\"\nversion.workspace = true\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("cli").join("Cargo.toml"),
+            "[package]\nname = \"cli\"\nversion.workspace = true\n",
+        )
+        .unwrap();
+
+        let packages = vec![
+            SelectedPackage {
+                name: "server".to_string(),
+                source: package_select::PackageSource::Config,
+            },
+            SelectedPackage {
+                name: "cli".to_string(),
+                source: package_select::PackageSource::Config,
+            },
+        ];
+
+        let release = resolve_release_version(dir.path(), &packages).unwrap();
+        assert_eq!(release.version, "1.2.3");
+        assert_eq!(release.paths, vec![dir.path().join("Cargo.toml")]);
     }
 
     #[test]

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
@@ -37,6 +38,12 @@ struct ReleasePlan {
     version_bumped: bool,
     cargo_toml_path: Option<PathBuf>,
     notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct RpmStageKey {
+    name: String,
+    arch: String,
 }
 
 pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
@@ -734,6 +741,37 @@ fn stage_rpms(ctx: &AppContext, plan: &ReleasePlan, rpms: &[PathBuf]) -> Result<
     let dest_dir = plan.packaging_root.join("rpm").join("sources");
     fs::create_dir_all(&dest_dir)
         .with_context(|| format!("failed to create {}", dest_dir.display()))?;
+    let staged_keys = rpm_stage_keys(rpms)?;
+
+    for entry in
+        fs::read_dir(&dest_dir).with_context(|| format!("failed to read {}", dest_dir.display()))?
+    {
+        let entry = entry?;
+        let path = entry.path();
+        if !entry
+            .file_type()
+            .with_context(|| format!("failed to stat {}", path.display()))?
+            .is_file()
+        {
+            continue;
+        }
+
+        let Some(key) = parse_rpm_stage_key(&path) else {
+            continue;
+        };
+        if !staged_keys.contains(&key) {
+            continue;
+        }
+
+        fs::remove_file(&path)
+            .with_context(|| format!("failed to remove stale staged RPM {}", path.display()))?;
+        let path_rel = path.strip_prefix(&plan.workspace_root).unwrap_or(&path);
+        ctx.info(format!(
+            "{} {}",
+            cargo_status(use_color, "Removed"),
+            path_rel.display(),
+        ));
+    }
 
     for rpm in rpms {
         let filename = rpm
@@ -757,6 +795,33 @@ fn stage_rpms(ctx: &AppContext, plan: &ReleasePlan, rpms: &[PathBuf]) -> Result<
     }
 
     Ok(())
+}
+
+fn rpm_stage_keys(rpms: &[PathBuf]) -> Result<HashSet<RpmStageKey>> {
+    rpms.iter()
+        .map(|rpm| {
+            parse_rpm_stage_key(rpm)
+                .ok_or_else(|| anyhow::anyhow!("invalid RPM filename: {}", rpm.display()))
+        })
+        .collect()
+}
+
+fn parse_rpm_stage_key(path: &Path) -> Option<RpmStageKey> {
+    let filename = path.file_name()?.to_str()?;
+    let stem = filename.strip_suffix(".rpm")?;
+    let (nvra, arch) = stem.rsplit_once('.')?;
+    let mut parts = nvra.rsplitn(3, '-');
+    let release = parts.next()?;
+    let version = parts.next()?;
+    let name = parts.next()?;
+    if name.is_empty() || version.is_empty() || release.is_empty() || arch.is_empty() {
+        return None;
+    }
+
+    Some(RpmStageKey {
+        name: name.to_string(),
+        arch: arch.to_string(),
+    })
 }
 
 fn collect_rpm_artifacts(
@@ -1190,6 +1255,8 @@ mod tests {
     use super::*;
     use std::fs;
 
+    use crate::config::Config;
+
     #[test]
     fn read_cargo_version_from_package() {
         let dir = tempfile::tempdir().unwrap();
@@ -1293,6 +1360,87 @@ mod tests {
             content.starts_with("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
         );
         assert!(content.contains("test.rpm"));
+    }
+
+    #[test]
+    fn stage_rpms_replaces_only_matching_package_and_arch() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace_root = dir.path();
+        let packaging_root = workspace_root.join("tizen");
+        let sources_dir = packaging_root.join("rpm").join("sources");
+        fs::create_dir_all(&sources_dir).unwrap();
+
+        fs::write(
+            sources_dir.join("hello-service-0.1.0-1.aarch64.rpm"),
+            b"old aarch64",
+        )
+        .unwrap();
+        fs::write(
+            sources_dir.join("hello-service-0.1.0-1.armv7l.rpm"),
+            b"old armv7l",
+        )
+        .unwrap();
+        fs::write(
+            sources_dir.join("hello-service-helper-9.9.9-1.aarch64.rpm"),
+            b"external helper",
+        )
+        .unwrap();
+        fs::write(
+            sources_dir.join("external-lib-2.0.0-1.aarch64.rpm"),
+            b"external lib",
+        )
+        .unwrap();
+        fs::write(sources_dir.join("hello-service.env"), b"ENV=prod").unwrap();
+
+        let built_dir = workspace_root.join("target").join("test-rpms");
+        fs::create_dir_all(&built_dir).unwrap();
+        let new_rpm = built_dir.join("hello-service-0.2.0-1.aarch64.rpm");
+        fs::write(&new_rpm, b"new aarch64").unwrap();
+
+        let ctx = AppContext {
+            config: Config::default(),
+            workspace_root: workspace_root.to_path_buf(),
+        };
+        let plan = ReleasePlan {
+            package_name: "hello-service".to_string(),
+            packages: vec!["hello-service".to_string()],
+            version: "0.2.0".to_string(),
+            tag: "v0.2.0".to_string(),
+            arches: vec![Arch::Aarch64],
+            workspace_root: workspace_root.to_path_buf(),
+            packaging_root,
+            version_bumped: false,
+            cargo_toml_path: None,
+            notes: String::new(),
+        };
+
+        stage_rpms(&ctx, &plan, &[new_rpm]).unwrap();
+
+        assert!(
+            !sources_dir
+                .join("hello-service-0.1.0-1.aarch64.rpm")
+                .exists()
+        );
+        assert_eq!(
+            fs::read(sources_dir.join("hello-service-0.2.0-1.aarch64.rpm")).unwrap(),
+            b"new aarch64"
+        );
+        assert_eq!(
+            fs::read(sources_dir.join("hello-service-0.1.0-1.armv7l.rpm")).unwrap(),
+            b"old armv7l"
+        );
+        assert_eq!(
+            fs::read(sources_dir.join("hello-service-helper-9.9.9-1.aarch64.rpm")).unwrap(),
+            b"external helper"
+        );
+        assert_eq!(
+            fs::read(sources_dir.join("external-lib-2.0.0-1.aarch64.rpm")).unwrap(),
+            b"external lib"
+        );
+        assert_eq!(
+            fs::read(sources_dir.join("hello-service.env")).unwrap(),
+            b"ENV=prod"
+        );
     }
 
     #[test]

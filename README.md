@@ -20,6 +20,7 @@ cargo tizen gh-release --dry-run
 - The `repo` provider exists only as an explicit not-yet-implemented failure path.
 - `install` is TPK-only.
 - `gh-release` is RPM-only.
+- `gh-release` only replaces previously staged RPMs in `rpm/sources/` when they match the same output package and arch.
 - Packaging currently expects the built binary name to match the selected package name.
 
 ## Install

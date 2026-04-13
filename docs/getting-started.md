@@ -133,4 +133,6 @@ cargo tizen gh-release --dry-run
 - authenticated `gh`
 - project config with `[package].name` and `[package].packages`
 
+When it stages release RPMs into `rpm/sources/`, it only replaces older RPMs for the same output package+arch. Other authored files there stay intact.
+
 See [commands.md](commands.md) and [architecture.md](architecture.md) for the exact contract.

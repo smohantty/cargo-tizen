@@ -29,6 +29,7 @@ Rules enforced by the current code:
 - RPM requires `<packaging-dir>/rpm/<package-name>.spec`.
 - TPK requires `<packaging-dir>/tpk/tizen-manifest.xml`.
 - `rpm/sources/` is optional. Its regular files are copied into `rpmbuild/SOURCES/`.
+- `gh-release` stages release RPMs into `rpm/sources/` and only replaces older RPMs that match the same output package+arch. Other authored files in `rpm/sources/` stay intact.
 - `tpk/reference/` and `tpk/extra/` are optional and map to `tizen package -r` and `-e`.
 - Legacy manifest locations such as `<workspace>/tizen-manifest.xml` are rejected with a move hint.
 

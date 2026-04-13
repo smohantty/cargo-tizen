@@ -149,7 +149,7 @@ The flow:
 2. sync the RPM spec `Version:` field
 3. build release binaries
 4. package RPMs
-5. stage RPMs into `<packaging-dir>/rpm/sources/`
+5. stage RPMs into `<packaging-dir>/rpm/sources/`, replacing only previously staged RPMs for the same output package+arch
 6. generate SHA256 sidecars
 7. commit artifacts
 8. tag and push

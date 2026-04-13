@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -108,6 +110,71 @@ pub fn scaffold_rust_project(dir: &Path, name: &str) {
 
     fs::create_dir_all(dir.join("src")).expect("create src/");
     fs::write(dir.join("src/main.rs"), "fn main() {}\n").expect("write main.rs");
+}
+
+/// Copy a reference project from templates/ into a target directory.
+/// Returns the path to the copied project.
+pub fn copy_reference_project(project_name: &str, target_dir: &Path) -> PathBuf {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let src = manifest_dir
+        .join("templates")
+        .join("reference-projects")
+        .join(project_name);
+    assert!(
+        src.is_dir(),
+        "reference project not found: {}",
+        src.display()
+    );
+
+    let dest = target_dir.join(project_name);
+    copy_dir_recursive(&src, &dest).expect("copy reference project");
+    dest
+}
+
+fn copy_dir_recursive(src: &Path, dest: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dest)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dest_path)?;
+        } else {
+            fs::copy(&src_path, &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Patch a .cargo-tizen.toml to point at a specific SDK root.
+pub fn patch_sdk_root(project_dir: &Path, sdk_root: &Path) {
+    let config_path = project_dir.join(".cargo-tizen.toml");
+    let mut content = fs::read_to_string(&config_path).expect("read .cargo-tizen.toml");
+
+    // Append or replace [sdk] section
+    if content.contains("[sdk]") {
+        // Replace existing sdk.root line
+        let mut lines: Vec<String> = content.lines().map(String::from).collect();
+        let mut in_sdk = false;
+        for line in &mut lines {
+            if line.trim() == "[sdk]" {
+                in_sdk = true;
+                continue;
+            }
+            if in_sdk && line.starts_with("root") {
+                *line = format!("root = \"{}\"", sdk_root.display());
+                in_sdk = false;
+            }
+            if line.starts_with('[') && line.trim() != "[sdk]" {
+                in_sdk = false;
+            }
+        }
+        content = lines.join("\n") + "\n";
+    } else {
+        content.push_str(&format!("\n[sdk]\nroot = \"{}\"\n", sdk_root.display()));
+    }
+
+    fs::write(&config_path, content).expect("write patched .cargo-tizen.toml");
 }
 
 /// Write a .cargo-tizen.toml with the given arch.

@@ -201,6 +201,7 @@ Current behavior:
 - `--sign` updates user config
 - `--sign ""` clears the stored signing profile
 - with no `--sign`, the command prints the current merged configuration
+- `--show` prints the merged configuration; when combined with `--sign`, shows config after the write
 
 ## `gh-release`
 

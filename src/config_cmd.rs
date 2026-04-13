@@ -11,6 +11,9 @@ use crate::output::{color_enabled, colorize};
 pub fn run_config(ctx: &AppContext, args: &ConfigArgs) -> Result<()> {
     if let Some(sign) = &args.sign {
         set_sign(ctx, sign)?;
+        if args.show {
+            show_config(ctx);
+        }
     } else {
         show_config(ctx);
     }
@@ -99,6 +102,7 @@ fn show_config(ctx: &AppContext) {
 
     // [package]
     ctx.info(format!("\n{}", label("[package]")));
+    show_field(ctx, "name", cfg.package.name());
     if let Some(pkgs) = cfg.package_names() {
         ctx.info(format!("  packages = {:?}", pkgs));
     } else {
@@ -108,6 +112,14 @@ fn show_config(ctx: &AppContext) {
     // [tpk]
     ctx.info(format!("\n{}", label("[tpk]")));
     show_field(ctx, "sign", cfg.tpk.sign.as_deref());
+
+    // [release]
+    ctx.info(format!("\n{}", label("[release]")));
+    match &cfg.release.arches {
+        Some(arches) => ctx.info(format!("  arches = {:?}", arches)),
+        None => show_field::<&str>(ctx, "arches", None),
+    }
+    show_field(ctx, "tag_format", cfg.release.tag_format.as_deref());
 
     // [arch.*] overrides
     if !cfg.arch.is_empty() {

@@ -55,7 +55,7 @@ pub fn run_doctor(ctx: &AppContext, args: &DoctorArgs) -> Result<()> {
             host.ok("cross-arch RPM: buildarch_compat will be applied automatically");
         }
     } else {
-        host.warn("rpmbuild not found (install rpm-build) — only needed for cargo tizen rpm");
+        host.warn("rpmbuild not found (sudo apt install rpm) — only needed for cargo tizen rpm");
     }
     sections.push(host);
 

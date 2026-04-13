@@ -153,4 +153,5 @@ Current behavior:
 - `cargo tizen config --sign <profile>` writes user config
 - `cargo tizen config --sign ""` clears `tpk.sign`
 - when `--sign` is omitted, the command prints the current merged configuration
-- `--show` exists to make that read-only intent explicit
+- `--show` prints the merged configuration; when combined with `--sign`, shows config after the write
+- all config sections are displayed: `[default]`, `[package]`, `[sdk]`, `[cache]`, `[tpk]`, `[release]`, and per-arch overrides

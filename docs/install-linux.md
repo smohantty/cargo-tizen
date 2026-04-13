@@ -36,14 +36,7 @@ Override them only when your toolchain uses different names or paths.
 Install this only if you need RPM packaging:
 
 ```bash
-# Debian/Ubuntu
 sudo apt install rpm
-
-# Fedora/RHEL
-sudo dnf install rpm-build
-
-# Arch
-sudo pacman -S rpm-tools
 ```
 
 ## Tizen Studio and rootstraps

@@ -10,9 +10,67 @@
 mod common;
 
 use assert_cmd::Command;
+use std::path::Path;
 
 fn cargo_tizen() -> Command {
     Command::cargo_bin("cargo-tizen").expect("binary should exist")
+}
+
+fn require_sdk() -> Option<common::SdkEnv> {
+    match common::detect_sdk() {
+        Some(sdk) => Some(sdk),
+        None => {
+            eprintln!("SKIP: SDK not found");
+            None
+        }
+    }
+}
+
+fn require_sdk_with_rpmbuild() -> Option<common::SdkEnv> {
+    match common::detect_sdk() {
+        Some(sdk) if sdk.has_rpmbuild => Some(sdk),
+        _ => {
+            eprintln!("SKIP: SDK or rpmbuild not found");
+            None
+        }
+    }
+}
+
+fn with_project_for_each_arch(
+    sdk: &common::SdkEnv,
+    project_name: &str,
+    mut f: impl FnMut(&Path, &str),
+) {
+    for arch in &sdk.ready_arches {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = common::copy_reference_project(project_name, tmp.path());
+        common::patch_sdk_root(&project, &sdk.sdk_root);
+        f(&project, arch);
+    }
+}
+
+fn build_release(project: &Path, arch: &str) {
+    cargo_tizen()
+        .current_dir(project)
+        .args(["build", "-A", arch, "--release"])
+        .assert()
+        .success();
+}
+
+fn package_rpm(project: &Path, arch: &str) {
+    cargo_tizen()
+        .current_dir(project)
+        .args(["rpm", "-A", arch, "--release", "--no-build"])
+        .assert()
+        .success();
+}
+
+fn package_tpk(project: &Path, arch: &str) {
+    cargo_tizen()
+        .current_dir(project)
+        .args(["tpk", "-A", arch, "--release", "--no-build"])
+        .assert()
+        .success();
 }
 
 // ---------------------------------------------------------------------------
@@ -21,33 +79,25 @@ fn cargo_tizen() -> Command {
 
 #[test]
 fn rpm_app_build_and_package() {
-    let sdk = match common::detect_sdk() {
-        Some(sdk) if sdk.has_rpmbuild => sdk,
-        _ => {
-            eprintln!("SKIP: SDK or rpmbuild not found");
-            return;
-        }
+    let Some(sdk) = require_sdk_with_rpmbuild() else {
+        return;
     };
 
-    let tmp = tempfile::tempdir().unwrap();
-    let project = common::copy_reference_project("rpm-app", tmp.path());
-    common::patch_sdk_root(&project, &sdk.sdk_root);
+    with_project_for_each_arch(&sdk, "rpm-app", |project, arch| {
+        build_release(project, arch);
+        package_rpm(project, arch);
+    });
+}
 
-    let arch = &sdk.ready_arches[0];
+fn rpm_project_build_and_package(project_name: &str) {
+    let Some(sdk) = require_sdk_with_rpmbuild() else {
+        return;
+    };
 
-    // Build
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["build", "-A", arch, "--release"])
-        .assert()
-        .success();
-
-    // Package RPM
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["rpm", "-A", arch, "--release", "--no-build"])
-        .assert()
-        .success();
+    with_project_for_each_arch(&sdk, project_name, |project, arch| {
+        build_release(project, arch);
+        package_rpm(project, arch);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -56,33 +106,7 @@ fn rpm_app_build_and_package() {
 
 #[test]
 fn rpm_service_app_build_and_package() {
-    let sdk = match common::detect_sdk() {
-        Some(sdk) if sdk.has_rpmbuild => sdk,
-        _ => {
-            eprintln!("SKIP: SDK or rpmbuild not found");
-            return;
-        }
-    };
-
-    let tmp = tempfile::tempdir().unwrap();
-    let project = common::copy_reference_project("rpm-service-app", tmp.path());
-    common::patch_sdk_root(&project, &sdk.sdk_root);
-
-    let arch = &sdk.ready_arches[0];
-
-    // Build
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["build", "-A", arch, "--release"])
-        .assert()
-        .success();
-
-    // Package RPM (exercises extra sources collection)
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["rpm", "-A", arch, "--release", "--no-build"])
-        .assert()
-        .success();
+    rpm_project_build_and_package("rpm-service-app");
 }
 
 // ---------------------------------------------------------------------------
@@ -91,90 +115,17 @@ fn rpm_service_app_build_and_package() {
 
 #[test]
 fn rpm_multi_package_build_and_package() {
-    let sdk = match common::detect_sdk() {
-        Some(sdk) if sdk.has_rpmbuild => sdk,
-        _ => {
-            eprintln!("SKIP: SDK or rpmbuild not found");
-            return;
-        }
-    };
-
-    let tmp = tempfile::tempdir().unwrap();
-    let project = common::copy_reference_project("rpm-multi-package", tmp.path());
-    common::patch_sdk_root(&project, &sdk.sdk_root);
-
-    let arch = &sdk.ready_arches[0];
-
-    // Build (workspace — builds all members)
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["build", "-A", arch, "--release"])
-        .assert()
-        .success();
-
-    // Package RPM (multi-package: hello-server + hello-cli)
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["rpm", "-A", arch, "--release", "--no-build"])
-        .assert()
-        .success();
+    rpm_project_build_and_package("rpm-multi-package");
 }
 
 // ---------------------------------------------------------------------------
 // rpm-syslibs: binary linking openssl + sqlite from sysroot
 //
-// Gated behind `--ignored` because compiling openssl-sys + libsqlite3-sys
-// from scratch in a fresh temp dir takes ~18s.
-// Run explicitly with: cargo test --test reference_projects rpm_syslibs -- --ignored
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore]
 fn rpm_syslibs_build_and_package() {
-    let sdk = match common::detect_sdk() {
-        Some(sdk) if sdk.has_rpmbuild => sdk,
-        _ => {
-            eprintln!("SKIP: SDK or rpmbuild not found");
-            return;
-        }
-    };
-
-    let tmp = tempfile::tempdir().unwrap();
-    let project = common::copy_reference_project("rpm-syslibs", tmp.path());
-    common::patch_sdk_root(&project, &sdk.sdk_root);
-
-    let arch = &sdk.ready_arches[0];
-
-    // This project links to libssl and libsqlite3 from the sysroot.
-    // It may fail if the rootstrap does not provide them — that's informational.
-    let build_result = cargo_tizen()
-        .current_dir(&project)
-        .args(["build", "-A", arch, "--release"])
-        .output()
-        .unwrap();
-
-    if !build_result.status.success() {
-        let stderr = String::from_utf8_lossy(&build_result.stderr);
-        if stderr.contains("openssl") || stderr.contains("sqlite") || stderr.contains("pkg-config")
-        {
-            eprintln!(
-                "SKIP: rpm-syslibs build failed due to missing system libs in sysroot\n{}",
-                stderr
-            );
-            return;
-        }
-        panic!(
-            "rpm-syslibs build failed for unexpected reason:\n{}",
-            stderr
-        );
-    }
-
-    // Package RPM
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["rpm", "-A", arch, "--release", "--no-build"])
-        .assert()
-        .success();
+    rpm_project_build_and_package("rpm-syslibs");
 }
 
 // ---------------------------------------------------------------------------
@@ -183,37 +134,19 @@ fn rpm_syslibs_build_and_package() {
 
 #[test]
 fn tpk_service_app_build() {
-    let sdk = match common::detect_sdk() {
-        Some(sdk) => sdk,
-        None => {
-            eprintln!("SKIP: SDK not found");
-            return;
-        }
+    let Some(sdk) = require_sdk() else {
+        return;
     };
 
-    let tmp = tempfile::tempdir().unwrap();
-    let project = common::copy_reference_project("tpk-service-app", tmp.path());
-    common::patch_sdk_root(&project, &sdk.sdk_root);
+    with_project_for_each_arch(&sdk, "tpk-service-app", |project, arch| {
+        build_release(project, arch);
 
-    let arch = &sdk.ready_arches[0];
-
-    // Build succeeds (TPK packaging requires tizen CLI which may not be present)
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["build", "-A", arch, "--release"])
-        .assert()
-        .success();
-
-    // TPK packaging — only if tizen CLI is available
-    if sdk.has_tizen_cli {
-        cargo_tizen()
-            .current_dir(&project)
-            .args(["tpk", "-A", arch, "--release", "--no-build"])
-            .assert()
-            .success();
-    } else {
-        eprintln!("SKIP tpk packaging: tizen CLI not found");
-    }
+        if sdk.has_tizen_cli {
+            package_tpk(project, arch);
+        } else {
+            eprintln!("SKIP tpk packaging for {arch}: tizen CLI not found");
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -222,25 +155,11 @@ fn tpk_service_app_build() {
 
 #[test]
 fn rpm_app_builds_for_all_arches() {
-    let sdk = match common::detect_sdk() {
-        Some(sdk) => sdk,
-        None => {
-            eprintln!("SKIP: SDK not found");
-            return;
-        }
+    let Some(sdk) = require_sdk() else {
+        return;
     };
 
-    for arch in &sdk.ready_arches {
-        let tmp = tempfile::tempdir().unwrap();
-        let project = common::copy_reference_project("rpm-app", tmp.path());
-        common::patch_sdk_root(&project, &sdk.sdk_root);
-
-        cargo_tizen()
-            .current_dir(&project)
-            .args(["build", "-A", arch, "--release"])
-            .assert()
-            .success();
-    }
+    with_project_for_each_arch(&sdk, "rpm-app", build_release);
 }
 
 // ---------------------------------------------------------------------------
@@ -249,42 +168,29 @@ fn rpm_app_builds_for_all_arches() {
 
 #[test]
 fn rpm_app_clean_after_build() {
-    let sdk = match common::detect_sdk() {
-        Some(sdk) => sdk,
-        None => {
-            eprintln!("SKIP: SDK not found");
-            return;
-        }
+    let Some(sdk) = require_sdk() else {
+        return;
     };
 
-    let arch = &sdk.ready_arches[0];
-    let tmp = tempfile::tempdir().unwrap();
-    let project = common::copy_reference_project("rpm-app", tmp.path());
-    common::patch_sdk_root(&project, &sdk.sdk_root);
+    with_project_for_each_arch(&sdk, "rpm-app", |project, arch| {
+        build_release(project, arch);
 
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["build", "-A", arch, "--release"])
-        .assert()
-        .success();
+        assert!(project.join("target/tizen").join(arch).exists());
 
-    // target dir should exist
-    assert!(project.join("target/tizen").join(arch).exists());
+        cargo_tizen()
+            .current_dir(project)
+            .args(["clean", "--build", "-A", arch])
+            .assert()
+            .success();
 
-    cargo_tizen()
-        .current_dir(&project)
-        .args(["clean", "--build", "-A", arch])
-        .assert()
-        .success();
-
-    // target dir should be gone
-    assert!(
-        !project
-            .join("target/tizen")
-            .join(arch)
-            .join("cargo")
-            .exists()
-    );
+        assert!(
+            !project
+                .join("target/tizen")
+                .join(arch)
+                .join("cargo")
+                .exists()
+        );
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -293,38 +199,31 @@ fn rpm_app_clean_after_build() {
 
 #[test]
 fn doctor_on_reference_projects() {
-    let sdk = match common::detect_sdk() {
-        Some(sdk) => sdk,
-        None => {
-            eprintln!("SKIP: SDK not found");
-            return;
-        }
+    let Some(sdk) = require_sdk() else {
+        return;
     };
-
-    let arch = &sdk.ready_arches[0];
 
     for project_name in &[
         "rpm-app",
         "rpm-service-app",
+        "rpm-syslibs",
         "rpm-multi-package",
         "tpk-service-app",
     ] {
-        let tmp = tempfile::tempdir().unwrap();
-        let project = common::copy_reference_project(project_name, tmp.path());
-        common::patch_sdk_root(&project, &sdk.sdk_root);
+        with_project_for_each_arch(&sdk, project_name, |project, arch| {
+            let result = cargo_tizen()
+                .current_dir(project)
+                .args(["doctor", "-A", arch])
+                .output()
+                .unwrap();
 
-        let result = cargo_tizen()
-            .current_dir(&project)
-            .args(["doctor", "-A", arch])
-            .output()
-            .unwrap();
-
-        // Doctor may report warnings (e.g., missing tizen CLI) but should not panic
-        eprintln!(
-            "doctor {} exit={} stdout={}",
-            project_name,
-            result.status,
-            String::from_utf8_lossy(&result.stdout)
-        );
+            eprintln!(
+                "doctor {} arch={} exit={} stdout={}",
+                project_name,
+                arch,
+                result.status,
+                String::from_utf8_lossy(&result.stdout)
+            );
+        });
     }
 }

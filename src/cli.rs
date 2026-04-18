@@ -1,25 +1,28 @@
 use std::path::PathBuf;
 
+use clap::builder::styling::{AnsiColor, Effects, Styles};
 use clap::{Args, Parser, Subcommand};
 
 use crate::arch::Arch;
 use crate::sysroot::provider::ProviderKind;
 
+const HELP_STYLES: Styles = Styles::styled()
+    .header(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
+    .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .placeholder(AnsiColor::Cyan.on_default())
+    .valid(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
+    .invalid(AnsiColor::Yellow.on_default().effects(Effects::BOLD))
+    .error(AnsiColor::Red.on_default().effects(Effects::BOLD));
+
 const ROOT_AFTER_HELP: &str = "\
-Quick start:
-  cargo tizen init
-  cargo tizen doctor
-  cargo tizen fix
+\x1b[1;32mExamples:\x1b[0m
+  cargo tizen init                       Scaffold config & packaging
+  cargo tizen doctor                     Verify SDK and toolchain
+  cargo tizen build -A armv7l --release  Cross-compile
+  cargo tizen rpm   -A armv7l --release  Package as RPM
 
-Common workflows:
-  cargo tizen build -A armv7l --release
-  cargo tizen rpm -A armv7l --release
-  cargo tizen tpk -A armv7l --release
-  cargo tizen install -A armv7l --release
-
-Tips:
-  Most commands auto-select the target architecture when exactly one choice is available.
-  Use cargo tizen <command> --help for command-specific notes and examples.";
+See '\x1b[1;36mcargo tizen help <command>\x1b[0m' for details on a specific command.";
 
 const SETUP_AFTER_HELP: &str = "\
 Examples:
@@ -151,13 +154,13 @@ Notes:
 #[command(
     name = "cargo-tizen",
     bin_name = "cargo tizen",
-    about = "Cross-build Rust projects for Tizen and package them as RPM or TPK",
-    long_about = "Cross-build Rust projects for Tizen, prepare SDK sysroots, and package artifacts as RPM or TPK.\n\nStart with init to scaffold starter files, doctor to verify prerequisites, and fix to repair common setup gaps. Then use build, rpm, tpk, or install for day-to-day work.",
+    about = "Build Rust projects for Tizen and package them as RPM or TPK",
     after_help = ROOT_AFTER_HELP,
     after_long_help = ROOT_AFTER_HELP,
     arg_required_else_help = true,
     propagate_version = true,
-    version
+    version,
+    styles = HELP_STYLES
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -182,7 +185,7 @@ pub enum Command {
     Init(InitArgs),
     #[command(
         display_order = 4,
-        about = "Cross-build the current Rust project for a Tizen target",
+        about = "Build the current Rust project for a Tizen target",
         after_help = BUILD_AFTER_HELP,
         after_long_help = BUILD_AFTER_HELP
     )]
@@ -246,7 +249,7 @@ pub enum Command {
     #[command(
         name = "gh-release",
         display_order = 12,
-        about = "Cross-build, package, and publish a GitHub release with RPM assets",
+        about = "Build, package, and publish a GitHub release with RPM assets",
         after_help = GH_RELEASE_AFTER_HELP,
         after_long_help = GH_RELEASE_AFTER_HELP
     )]
@@ -598,7 +601,7 @@ mod tests {
         assert!(help.contains("Prepare and cache a Tizen sysroot for cross-compilation"));
         assert!(help.contains("Create starter config and packaging files for the current project"));
         assert!(help.contains("Build or reuse a TPK and install it on a connected device"));
-        assert!(help.contains("Quick start:"));
+        assert!(help.contains("Examples:"));
         assert!(help.contains("cargo tizen doctor"));
         assert!(!help.contains("--config"));
     }
@@ -622,7 +625,7 @@ mod tests {
         );
         let build = line_offset(
             &help,
-            "  build       Cross-build the current Rust project for a Tizen target",
+            "  build       Build the current Rust project for a Tizen target",
         );
         let install = line_offset(
             &help,
@@ -646,7 +649,7 @@ mod tests {
         let mut build = command.find_subcommand_mut("build").unwrap().clone();
         let help = render_help(&mut build);
 
-        assert!(help.contains("Cross-build the current Rust project for a Tizen target"));
+        assert!(help.contains("Build the current Rust project for a Tizen target"));
         assert!(help.contains("Extra arguments passed through to cargo build after --"));
         assert!(help.contains("cargo tizen build -A aarch64 --release"));
         assert!(help.contains("cargo tizen build -A armv7l -- --features my_feature"));

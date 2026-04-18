@@ -26,7 +26,7 @@ fn help_prints_usage() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Cross-build Rust projects"));
+        .stdout(predicate::str::contains("Build Rust projects"));
 }
 
 #[test]

@@ -139,6 +139,7 @@ Examples:
   cargo tizen gh-release --yes -A aarch64
   cargo tizen gh-release --bump patch
   cargo tizen gh-release --bump minor --yes
+  cargo tizen gh-release --reuse-tag
 
 Notes:
   gh-release always shows a plan and asks for confirmation before executing.
@@ -148,6 +149,10 @@ Notes:
   Use --bump major|minor|patch to auto-increment the version before releasing.
   Tag format defaults to v{version}; override with [release].tag_format when needed.
   Release notes default to commit subjects from the previous release tag to HEAD.
+  Use --reuse-tag to republish RPM assets without bumping the version: the existing
+    tag (matching the current Cargo.toml version) is force-moved to HEAD locally,
+    force-pushed to origin, and the GitHub release is updated in place.
+    Cannot be combined with --bump.
   Requires gh CLI (https://cli.github.com) to be installed and authenticated.";
 
 #[derive(Debug, Parser)]
@@ -558,6 +563,12 @@ pub struct GhReleaseArgs {
         help = "Skip the confirmation prompt and all interactive decisions"
     )]
     pub yes: bool,
+
+    #[arg(
+        long,
+        help = "Reuse the current Cargo.toml version's tag and force-move it to HEAD (republishes RPM assets in place)"
+    )]
+    pub reuse_tag: bool,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -785,5 +796,33 @@ mod tests {
     fn rejects_invalid_bump_level() {
         let result = Cli::try_parse_from(["cargo-tizen", "gh-release", "--bump", "invalid"]);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parses_gh_release_reuse_tag() {
+        let cli = Cli::try_parse_from(["cargo-tizen", "gh-release", "--reuse-tag", "--yes"])
+            .expect("valid gh-release --reuse-tag args");
+        match cli.command {
+            Command::GhRelease(args) => {
+                assert!(args.reuse_tag);
+                assert!(args.yes);
+                assert!(args.bump.is_none());
+            }
+            _ => panic!("expected GhRelease command"),
+        }
+    }
+
+    #[test]
+    fn parses_gh_release_reuse_tag_with_arch() {
+        let cli =
+            Cli::try_parse_from(["cargo-tizen", "gh-release", "--reuse-tag", "-A", "aarch64"])
+                .expect("valid gh-release --reuse-tag -A aarch64");
+        match cli.command {
+            Command::GhRelease(args) => {
+                assert!(args.reuse_tag);
+                assert_eq!(args.arch.len(), 1);
+            }
+            _ => panic!("expected GhRelease command"),
+        }
     }
 }

@@ -208,7 +208,7 @@ Current behavior:
 Use:
 
 ```bash
-cargo tizen gh-release [-A <armv7l|aarch64>...] [--bump <major|minor|patch>] [--dry-run] [--yes]
+cargo tizen gh-release [-A <armv7l|aarch64>...] [--bump <major|minor|patch>] [--reuse-tag] [--dry-run] [--yes]
 ```
 
 Current behavior:
@@ -220,6 +220,14 @@ Current behavior:
 - validates a clean working tree, branch `main`, remote `origin`, and authenticated `gh`
 - builds release binaries, packages RPMs with `--no-build`, stages them into `<packaging-dir>/rpm/sources/`, replaces previously staged RPMs for the same output package+arch only, syncs the spec `Version:` field, commits artifacts, tags, pushes, and creates or updates the GitHub release
 - uploads RPM and `.sha256` sidecar assets
+
+`--reuse-tag` republishes RPM assets without bumping the version:
+
+- skips the "tag already exists" bail
+- keeps the current Cargo.toml version and uses the same tag (e.g. `v0.1.6`)
+- force-moves the tag to HEAD locally (`git tag -fa`) and force-pushes it to `origin`
+- still commits any staged-RPM/spec changes, pushes the current branch, and updates the existing GitHub release in place (`gh release edit` + `gh release upload --clobber`)
+- cannot be combined with `--bump`
 
 Current limitation:
 

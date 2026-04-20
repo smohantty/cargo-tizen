@@ -38,6 +38,7 @@ struct ReleasePlan {
     version_bumped: bool,
     cargo_toml_paths: Vec<PathBuf>,
     notes: String,
+    reuse_tag: bool,
 }
 
 struct ReleaseVersion {
@@ -93,10 +94,10 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
 
     let spec_synced = sync_spec_if_needed(args.dry_run, &spec_path, &version)?;
     let tag = format_tag(&resolved.tag_format, &version);
-    if check_tag_exists(&tag) || remote_tag_exists(RELEASE_REMOTE, &tag)? {
+    if !args.reuse_tag && (check_tag_exists(&tag) || remote_tag_exists(RELEASE_REMOTE, &tag)?) {
         bail!(
             "tag {} already exists\n\
-             bump the version or remove the existing tag before releasing",
+             bump the version, remove the existing tag, or pass --reuse-tag to force-move it to HEAD",
             tag
         );
     }
@@ -117,6 +118,7 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         version_bumped,
         cargo_toml_paths,
         notes,
+        reuse_tag: args.reuse_tag,
     };
 
     print_plan(&plan, spec_synced);
@@ -218,7 +220,11 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
         git_commit(&plan, &paths_to_add)?;
     }
 
-    git_tag_and_push(&plan)?;
+    if plan.reuse_tag {
+        git_force_tag_and_push(&plan)?;
+    } else {
+        git_tag_and_push(&plan)?;
+    }
     gh_release_create(&plan, &all_assets, &plan.notes)?;
     verify_release(&plan, &all_assets)?;
     print_summary(ctx, &plan, &all_assets);
@@ -226,7 +232,13 @@ pub fn run_gh_release(ctx: &AppContext, args: &GhReleaseArgs) -> Result<()> {
     Ok(())
 }
 
-fn validate_flags(_args: &GhReleaseArgs) -> Result<()> {
+fn validate_flags(args: &GhReleaseArgs) -> Result<()> {
+    if args.reuse_tag && args.bump.is_some() {
+        bail!(
+            "--reuse-tag cannot be combined with --bump\n\
+             --reuse-tag republishes the same version's tag (force-moved to HEAD); --bump changes the version"
+        );
+    }
     Ok(())
 }
 
@@ -743,10 +755,20 @@ fn print_plan(plan: &ReleasePlan, spec_synced: bool) {
             format!("Update release artifacts for {}", plan.tag)
         }
     );
-    println!("     Tag:      {} (new)", plan.tag);
     println!(
-        "     Push:     {}/{} + tag {}",
-        RELEASE_REMOTE, RELEASE_BRANCH, plan.tag
+        "     Tag:      {} ({})",
+        plan.tag,
+        if plan.reuse_tag {
+            "force-move to HEAD"
+        } else {
+            "new"
+        }
+    );
+    println!(
+        "     Push:     {}/HEAD + {}tag {}",
+        RELEASE_REMOTE,
+        if plan.reuse_tag { "force-push " } else { "" },
+        plan.tag
     );
     println!(
         "     Release:  GitHub release {} with RPM + SHA256 assets",
@@ -1064,6 +1086,43 @@ fn git_tag_and_push(plan: &ReleasePlan) -> Result<()> {
         .context("failed to push tag")?;
     if !status.success() {
         bail!("git push tag {} failed", plan.tag);
+    }
+
+    Ok(())
+}
+
+fn git_force_tag_and_push(plan: &ReleasePlan) -> Result<()> {
+    let tag_message = format!("Release {}", plan.tag);
+    let status = Command::new("git")
+        .args(["tag", "-fa", &plan.tag, "-m", &tag_message])
+        .current_dir(&plan.workspace_root)
+        .status()
+        .context("failed to create or move git tag")?;
+    if !status.success() {
+        bail!("git tag -f {} failed", plan.tag);
+    }
+
+    let status = Command::new("git")
+        .args(["push", RELEASE_REMOTE, "HEAD"])
+        .current_dir(&plan.workspace_root)
+        .status()
+        .context("failed to push branch")?;
+    if !status.success() {
+        bail!(
+            "git push failed\n\
+             the tag {} was moved locally — push the branch and tag manually",
+            plan.tag
+        );
+    }
+
+    let tag_ref = format!("refs/tags/{}", plan.tag);
+    let status = Command::new("git")
+        .args(["push", "--force", RELEASE_REMOTE, &tag_ref])
+        .current_dir(&plan.workspace_root)
+        .status()
+        .context("failed to force-push tag")?;
+    if !status.success() {
+        bail!("git push --force tag {} failed", plan.tag);
     }
 
     Ok(())
@@ -1426,6 +1485,33 @@ mod tests {
             bump: None,
             dry_run: false,
             yes: false,
+            reuse_tag: false,
+        };
+        assert!(validate_flags(&args).is_ok());
+    }
+
+    #[test]
+    fn validate_flags_rejects_reuse_tag_with_bump() {
+        let args = GhReleaseArgs {
+            arch: vec![],
+            bump: Some(BumpLevel::Patch),
+            dry_run: false,
+            yes: false,
+            reuse_tag: true,
+        };
+        let err = validate_flags(&args).unwrap_err().to_string();
+        assert!(err.contains("--reuse-tag"));
+        assert!(err.contains("--bump"));
+    }
+
+    #[test]
+    fn validate_flags_accepts_reuse_tag_alone() {
+        let args = GhReleaseArgs {
+            arch: vec![],
+            bump: None,
+            dry_run: false,
+            yes: false,
+            reuse_tag: true,
         };
         assert!(validate_flags(&args).is_ok());
     }
@@ -1496,6 +1582,7 @@ mod tests {
             version_bumped: false,
             cargo_toml_paths: Vec::new(),
             notes: String::new(),
+            reuse_tag: false,
         };
 
         stage_rpms(&ctx, &plan, &[new_rpm]).unwrap();
